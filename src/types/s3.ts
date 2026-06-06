@@ -42,8 +42,13 @@ export interface ListObjectsResult {
 export interface TransferProgress {
   transferId: string;
   fileName: string;
-  direction: "upload" | "download";
+  direction: "upload" | "download" | "copy";
   bytes: number;
   total: number;
-  status: "started" | "in_progress" | "completed" | "failed";
+  status: "started" | "in_progress" | "completed" | "failed" | "cancelled" | "paused";
+}
+
+export interface CopyMoveItem {
+  srcKey: string;
+  destKey?: string;
 }

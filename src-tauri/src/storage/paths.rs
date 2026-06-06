@@ -56,6 +56,10 @@ pub fn secrets_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("secrets.enc"))
 }
 
+pub fn ui_state_path(app: &AppHandle) -> Result<PathBuf> {
+    Ok(data_dir(app)?.join("ui_state.json"))
+}
+
 pub fn ensure_parent(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)

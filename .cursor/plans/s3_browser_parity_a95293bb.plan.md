@@ -7,7 +7,7 @@ todos:
     status: completed
   - id: phase-1-twopane
     content: "Phase 1: Two-pane local+remote explorer with cross-pane drag and improved transfer engine (concurrency, cancel, pause/resume, overwrite rules)"
-    status: pending
+    status: completed
   - id: phase-2-sync
     content: "Phase 2: Folder Sync Tool — job model, compare strategies, inclusion/exclusion filters, sync results UI"
     status: pending

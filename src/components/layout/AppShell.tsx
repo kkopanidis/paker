@@ -5,6 +5,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { Breadcrumb } from "@/components/browser/Breadcrumb";
 import { BrowserToolbar } from "@/components/browser/BrowserToolbar";
 import { BucketSidebar } from "@/components/browser/BucketSidebar";
+import { CopyMoveDialog, type CopyMoveMode } from "@/components/browser/CopyMoveDialog";
 import { DeleteConfirmDialog } from "@/components/browser/DeleteConfirmDialog";
 import { FileTable } from "@/components/browser/FileTable";
 import { ObjectDetails } from "@/components/browser/ObjectDetails";
@@ -12,6 +13,7 @@ import {
   OverwriteDialog,
   type OverwriteConflict,
 } from "@/components/browser/OverwriteDialog";
+import { LocalFilePanel } from "@/components/browser/LocalFilePanel";
 import { ConnectionList } from "@/components/connections/ConnectionList";
 import { BucketPromptDialog } from "@/components/connections/BucketPromptDialog";
 import {
@@ -54,6 +56,8 @@ export function AppShell() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [renameTarget, setRenameTarget] = useState<S3Object | null>(null);
   const [pendingDelete, setPendingDelete] = useState<S3Object[]>([]);
+  const [copyMoveOpen, setCopyMoveOpen] = useState(false);
+  const [copyMoveInitialMode, setCopyMoveInitialMode] = useState<CopyMoveMode>("copy");
 
   const openRename = (object?: S3Object) => {
     const target = object ?? browser.selectedObjects[0];
@@ -175,6 +179,25 @@ export function AppShell() {
     setDeleteConfirmOpen(false);
   };
 
+  const openCopyMove = (mode: CopyMoveMode) => {
+    if (browser.selectedObjects.length === 0) return;
+    setCopyMoveInitialMode(mode);
+    setCopyMoveOpen(true);
+  };
+
+  const handleCopyMoveConfirm = async (
+    destBucket: string,
+    destPrefix: string,
+    mode: CopyMoveMode
+  ) => {
+    if (mode === "copy") {
+      await browser.copySelectedTo(destBucket, destPrefix || undefined);
+    } else {
+      await browser.moveSelectedTo(destBucket, destPrefix || undefined);
+    }
+    setCopyMoveOpen(false);
+  };
+
   useKeyboardShortcuts({
     disabled: browserDisabled,
     onRefresh: () => void browser.refreshObjects(),
@@ -268,9 +291,9 @@ export function AppShell() {
           id="paker-main"
           orientation="horizontal"
           className="min-h-0 flex-1"
-          defaultLayout={{ connections: 22, buckets: 20, browser: 58 }}
+          defaultLayout={{ connections: 18, buckets: 14, local: 28, browser: 40 }}
         >
-          <Panel id="connections" defaultSize="22%" minSize="14%" maxSize="35%">
+          <Panel id="connections" defaultSize="18%" minSize="14%" maxSize="35%">
             <ConnectionList
               connections={connections.connections}
               selectedId={connections.selectedId}
@@ -285,7 +308,7 @@ export function AppShell() {
 
           <Separator className="w-1 bg-border" />
 
-          <Panel id="buckets" defaultSize="20%" minSize="12%" maxSize="30%">
+          <Panel id="buckets" defaultSize="14%" minSize="12%" maxSize="30%">
             <BucketSidebar
               buckets={browser.buckets}
               selectedBucket={browser.selectedBucket}
@@ -298,13 +321,34 @@ export function AppShell() {
 
           <Separator className="w-1 bg-border" />
 
-          <Panel id="browser" defaultSize="58%" minSize="35%">
+          <Panel id="local" defaultSize="28%" minSize="18%" maxSize="45%">
+            <LocalFilePanel
+              connectionId={connections.selected?.id ?? null}
+              onDownloadFromS3={(keys, destDir) => {
+                if (!connections.selected || !browser.selectedBucket) return;
+                const objects = keys.map((k) => ({
+                  key: k,
+                  name: k.split("/").pop() || k,
+                  isFolder: false,
+                  size: 0,
+                }));
+                void browser.downloadObjectsTo(objects, destDir);
+              }}
+            />
+          </Panel>
+
+          <Separator className="w-1 bg-border" />
+
+          <Panel id="browser" defaultSize="40%" minSize="25%">
             <div
               className={cn(
                 "flex h-full min-w-0 flex-col transition-shadow",
                 dragOver && "ring-2 ring-inset ring-primary"
               )}
             >
+              <div className="flex items-center border-b px-3 py-2">
+                <span className="text-sm font-semibold text-foreground">Remote</span>
+              </div>
               <Breadcrumb
                 bucket={browser.selectedBucket}
                 segments={browser.breadcrumbs}
@@ -321,6 +365,8 @@ export function AppShell() {
                 onRename={openRename}
                 onNewFolder={() => setFolderOpen(true)}
                 onRefresh={() => void browser.refreshObjects()}
+                onCopyTo={() => openCopyMove("copy")}
+                onMoveTo={() => openCopyMove("move")}
               />
               <div className="flex min-h-0 flex-1">
                 <ScrollArea className="min-w-0 flex-[3]">
@@ -342,6 +388,10 @@ export function AppShell() {
                     onContextRefresh={() => void browser.refreshObjects()}
                     onContextCopyPath={copyObjectPath}
                     onContextOpen={(object) => browser.openFolder(object.key)}
+                    onContextCopyTo={() => openCopyMove("copy")}
+                    onContextMoveTo={() => openCopyMove("move")}
+                    draggable={!browserDisabled}
+                    onDropLocalPaths={(paths) => void startUpload(paths)}
                   />
                 </ScrollArea>
                 <div className="min-w-[200px] flex-1">
@@ -360,6 +410,9 @@ export function AppShell() {
           transfers={transfers.transfers}
           activeCount={transfers.activeCount}
           onClearCompleted={transfers.clearCompleted}
+          onCancel={transfers.cancelTransfer}
+          onPause={transfers.pauseTransfer}
+          onResume={transfers.resumeTransfer}
         />
       </div>
 
@@ -440,6 +493,19 @@ export function AppShell() {
         onOpenChange={setOverwriteOpen}
         conflicts={uploadConflicts}
         onResolve={(action) => void handleOverwriteResolve(action)}
+      />
+
+      <CopyMoveDialog
+        open={copyMoveOpen}
+        onOpenChange={setCopyMoveOpen}
+        buckets={browser.buckets}
+        currentBucket={browser.selectedBucket}
+        itemCount={browser.selectedObjects.length}
+        initialMode={copyMoveInitialMode}
+        busy={browser.busy}
+        onConfirm={(destBucket, destPrefix, mode) =>
+          void handleCopyMoveConfirm(destBucket, destPrefix, mode)
+        }
       />
 
       <BucketPromptDialog

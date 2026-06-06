@@ -1,6 +1,8 @@
 import {
+  CopyPlus,
   Download,
   FolderPlus,
+  MoveRight,
   Pencil,
   RefreshCw,
   Trash2,
@@ -21,6 +23,8 @@ interface BrowserToolbarProps {
   onRename: () => void;
   onNewFolder: () => void;
   onRefresh: () => void;
+  onCopyTo?: () => void;
+  onMoveTo?: () => void;
 }
 
 function ToolbarButton({
@@ -57,6 +61,8 @@ export function BrowserToolbar({
   onRename,
   onNewFolder,
   onRefresh,
+  onCopyTo,
+  onMoveTo,
 }: BrowserToolbarProps) {
   return (
     <TooltipProvider>
@@ -85,6 +91,27 @@ export function BrowserToolbar({
           onClick={onRename}
           disabled={disabled || busy || !singleSelection}
         />
+        {(onCopyTo || onMoveTo) && (
+          <>
+            <Separator orientation="vertical" className="mx-1 h-6" />
+            {onCopyTo && (
+              <ToolbarButton
+                label="Copy to…"
+                icon={<CopyPlus className="h-4 w-4" />}
+                onClick={onCopyTo}
+                disabled={disabled || busy || !hasSelection}
+              />
+            )}
+            {onMoveTo && (
+              <ToolbarButton
+                label="Move to…"
+                icon={<MoveRight className="h-4 w-4" />}
+                onClick={onMoveTo}
+                disabled={disabled || busy || !hasSelection}
+              />
+            )}
+          </>
+        )}
         <Separator orientation="vertical" className="mx-1 h-6" />
         <ToolbarButton
           label="New folder"

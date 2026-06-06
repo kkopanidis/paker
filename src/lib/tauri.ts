@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { S3Connection, S3ConnectionInput } from "@/types/connection";
-import type { BucketInfo, ListObjectsResult, ObjectHeadDetails, S3Object } from "@/types/s3";
+import type { BucketInfo, CopyMoveItem, ListObjectsResult, ObjectHeadDetails, S3Object } from "@/types/s3";
+import type { LocalEntry, TransferSettings } from "@/types/local";
 
 export interface SaveConnectionPayload extends S3ConnectionInput {
   id?: string;
@@ -127,13 +128,14 @@ export function uploadFiles(
 export function downloadFiles(
   connectionId: string,
   bucket: string,
-  keys: string[]
+  keys: string[],
+  saveDir?: string
 ): Promise<string[]> {
   return invoke<string[]>("download_files", {
     connectionId,
     bucket,
     keys,
-    saveDir: null,
+    saveDir: saveDir ?? null,
   });
 }
 
@@ -166,4 +168,76 @@ export function createFolder(
     prefix,
     folderName,
   });
+}
+
+export function cancelTransfer(transferId: string): Promise<void> {
+  return invoke<void>("cancel_transfer", { transferId });
+}
+
+export function pauseTransfer(transferId: string): Promise<void> {
+  return invoke<void>("pause_transfer", { transferId });
+}
+
+export function resumeTransfer(transferId: string): Promise<void> {
+  return invoke<void>("resume_transfer", { transferId });
+}
+
+export function copyObjects(
+  connectionId: string,
+  srcBucket: string,
+  destBucket: string,
+  items: CopyMoveItem[],
+  destPrefix?: string
+): Promise<void> {
+  return invoke<void>("copy_objects", {
+    connectionId,
+    srcBucket,
+    destBucket,
+    items,
+    destPrefix: destPrefix ?? null,
+  });
+}
+
+export function moveObjects(
+  connectionId: string,
+  srcBucket: string,
+  destBucket: string,
+  items: CopyMoveItem[],
+  destPrefix?: string
+): Promise<void> {
+  return invoke<void>("move_objects", {
+    connectionId,
+    srcBucket,
+    destBucket,
+    items,
+    destPrefix: destPrefix ?? null,
+  });
+}
+
+export function listLocalDir(path: string): Promise<LocalEntry[]> {
+  return invoke<LocalEntry[]>("list_local_dir", { path });
+}
+
+export function getHomeDir(): Promise<string> {
+  return invoke<string>("get_home_dir");
+}
+
+export function pickLocalFolder(): Promise<string | null> {
+  return invoke<string | null>("pick_local_folder");
+}
+
+export function getParentPath(path: string): Promise<string | null> {
+  return invoke<string | null>("get_parent_path", { path });
+}
+
+export function getLastLocalDir(connectionId: string): Promise<string | null> {
+  return invoke<string | null>("get_last_local_dir", { connectionId });
+}
+
+export function setLastLocalDir(connectionId: string, path: string): Promise<void> {
+  return invoke<void>("set_last_local_dir", { connectionId, path });
+}
+
+export function getTransferSettings(): Promise<TransferSettings> {
+  return invoke<TransferSettings>("get_transfer_settings");
 }

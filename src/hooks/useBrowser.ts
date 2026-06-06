@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
   checkObjectsExist,
+  copyObjects,
   createFolder,
   deleteObjects,
   downloadFiles,
   listBuckets,
   listObjects,
+  moveObjects,
   normalizeObjects,
   pickUploadFiles,
   renameObject,
@@ -359,6 +361,21 @@ export function useBrowser(connection: S3Connection | null) {
     [connection, selectedBucket, runAction]
   );
 
+  const downloadObjectsTo = useCallback(
+    async (targets: S3Object[], saveDir: string) => {
+      if (!connection || !selectedBucket || targets.length === 0) return;
+      const fileKeys = targets.filter((o) => !o.isFolder).map((o) => o.key);
+      if (fileKeys.length === 0) {
+        toast.error("Select at least one file to download");
+        return;
+      }
+      await runAction("Download started", () =>
+        downloadFiles(connection.id, selectedBucket, fileKeys, saveDir)
+      );
+    },
+    [connection, selectedBucket, runAction]
+  );
+
   const download = useCallback(async () => {
     await downloadObjects(selectedObjects);
   }, [downloadObjects, selectedObjects]);
@@ -410,6 +427,28 @@ export function useBrowser(connection: S3Connection | null) {
     [connection, selectedBucket, prefix, runAction]
   );
 
+  const copySelectedTo = useCallback(
+    async (destBucket: string, destPrefix?: string) => {
+      if (!connection || !selectedBucket || selectedKeys.size === 0) return;
+      const items = [...selectedKeys].map((key) => ({ srcKey: key }));
+      await runAction("Copy completed", () =>
+        copyObjects(connection.id, selectedBucket, destBucket, items, destPrefix)
+      );
+    },
+    [connection, selectedBucket, selectedKeys, runAction]
+  );
+
+  const moveSelectedTo = useCallback(
+    async (destBucket: string, destPrefix?: string) => {
+      if (!connection || !selectedBucket || selectedKeys.size === 0) return;
+      const items = [...selectedKeys].map((key) => ({ srcKey: key }));
+      await runAction("Move completed", () =>
+        moveObjects(connection.id, selectedBucket, destBucket, items, destPrefix)
+      );
+    },
+    [connection, selectedBucket, selectedKeys, runAction]
+  );
+
   return {
     buckets,
     selectedBucket,
@@ -446,10 +485,13 @@ export function useBrowser(connection: S3Connection | null) {
     openSelected,
     download,
     downloadObjects,
+    downloadObjectsTo,
     removeSelected,
     removeObjects,
     renameSelected,
     renameObjectItem,
     newFolder,
+    copySelectedTo,
+    moveSelectedTo,
   };
 }
