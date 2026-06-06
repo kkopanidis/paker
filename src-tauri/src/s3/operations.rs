@@ -6,10 +6,14 @@ use aws_sdk_s3::Client;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
+
+use crate::transfer::TransferManager;
 
 const MULTIPART_THRESHOLD: u64 = 5 * 1024 * 1024;
 const PART_SIZE: usize = 5 * 1024 * 1024;
@@ -85,8 +89,56 @@ fn emit_progress(
     );
 }
 
+/// Check cancel token and, if the manager is available, block while the transfer is paused.
+/// Returns true if the transfer was cancelled during a pause wait.
+fn is_cancelled(cancel_token: &Option<CancellationToken>) -> bool {
+    cancel_token.as_ref().map_or(false, |t| t.is_cancelled())
+}
+
+async fn wait_if_paused(
+    app: &AppHandle,
+    transfer_id: &str,
+    file_name: &str,
+    direction: &str,
+    bytes: u64,
+    total: u64,
+    cancel_token: &Option<CancellationToken>,
+) -> bool {
+    let paused = app
+        .try_state::<TransferManager>()
+        .map_or(false, |m| m.is_paused(transfer_id));
+
+    if !paused {
+        return false;
+    }
+
+    emit_progress(app, transfer_id, file_name, direction, bytes, total, "paused");
+
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        if is_cancelled(cancel_token) {
+            return true;
+        }
+
+        let still_paused = app
+            .try_state::<TransferManager>()
+            .map_or(false, |m| m.is_paused(transfer_id));
+
+        if !still_paused {
+            break;
+        }
+    }
+
+    false
+}
+
 pub async fn list_buckets(client: &Client) -> Result<Vec<BucketInfo>> {
-    let response = client.list_buckets().send().await.context("list_buckets failed")?;
+    let response = client
+        .list_buckets()
+        .send()
+        .await
+        .context("list_buckets failed")?;
 
     Ok(response
         .buckets()
@@ -94,9 +146,7 @@ pub async fn list_buckets(client: &Client) -> Result<Vec<BucketInfo>> {
         .filter_map(|bucket| {
             bucket.name().map(|name| BucketInfo {
                 name: name.to_string(),
-                creation_date: bucket
-                    .creation_date()
-                    .map(|dt| dt.to_string()),
+                creation_date: bucket.creation_date().map(|dt| dt.to_string()),
             })
         })
         .collect())
@@ -152,7 +202,9 @@ pub async fn verify_bucket_access(client: &Client, bucket: &str) -> Result<()> {
                 .max_keys(1)
                 .send()
                 .await
-                .with_context(|| format!("bucket access check failed for '{bucket}': {head_err}"))?;
+                .with_context(|| {
+                    format!("bucket access check failed for '{bucket}': {head_err}")
+                })?;
         }
     }
     Ok(())
@@ -234,6 +286,7 @@ async fn put_object_multipart(
     transfer_id: &str,
     file_name: &str,
     total: u64,
+    cancel_token: &Option<CancellationToken>,
 ) -> Result<()> {
     let create = client
         .create_multipart_upload()
@@ -256,6 +309,58 @@ async fn put_object_multipart(
     let mut completed_parts = Vec::new();
 
     loop {
+        // Cancel check
+        if is_cancelled(cancel_token) {
+            let _ = client
+                .abort_multipart_upload()
+                .bucket(bucket)
+                .key(key)
+                .upload_id(&upload_id)
+                .send()
+                .await;
+            emit_progress(
+                app,
+                transfer_id,
+                file_name,
+                "upload",
+                uploaded,
+                total,
+                "cancelled",
+            );
+            return Err(anyhow!("transfer cancelled"));
+        }
+
+        // Pause check
+        let cancelled_during_pause = wait_if_paused(
+            app,
+            transfer_id,
+            file_name,
+            "upload",
+            uploaded,
+            total,
+            cancel_token,
+        )
+        .await;
+        if cancelled_during_pause {
+            let _ = client
+                .abort_multipart_upload()
+                .bucket(bucket)
+                .key(key)
+                .upload_id(&upload_id)
+                .send()
+                .await;
+            emit_progress(
+                app,
+                transfer_id,
+                file_name,
+                "upload",
+                uploaded,
+                total,
+                "cancelled",
+            );
+            return Err(anyhow!("transfer cancelled"));
+        }
+
         let mut buffer = vec![0u8; PART_SIZE];
         let read = file
             .read(&mut buffer)
@@ -325,6 +430,8 @@ pub async fn put_object_file(
     bucket: &str,
     key: &str,
     local_path: &Path,
+    transfer_id: Option<String>,
+    cancel_token: Option<CancellationToken>,
 ) -> Result<()> {
     let metadata = fs::metadata(local_path)
         .await
@@ -335,14 +442,37 @@ pub async fn put_object_file(
         .and_then(|n| n.to_str())
         .unwrap_or(key)
         .to_string();
-    let transfer_id = Uuid::new_v4().to_string();
+    let transfer_id = transfer_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
     emit_progress(app, &transfer_id, &file_name, "upload", 0, total, "started");
 
     let result = if total > MULTIPART_THRESHOLD {
-        put_object_multipart(app, client, bucket, key, local_path, &transfer_id, &file_name, total)
-            .await
+        put_object_multipart(
+            app,
+            client,
+            bucket,
+            key,
+            local_path,
+            &transfer_id,
+            &file_name,
+            total,
+            &cancel_token,
+        )
+        .await
     } else {
+        // For small files, check cancel once before reading
+        if is_cancelled(&cancel_token) {
+            emit_progress(
+                app,
+                &transfer_id,
+                &file_name,
+                "upload",
+                0,
+                total,
+                "cancelled",
+            );
+            return Err(anyhow!("transfer cancelled"));
+        }
         let bytes = fs::read(local_path)
             .await
             .with_context(|| format!("failed to read {}", local_path.display()))?;
@@ -362,6 +492,7 @@ pub async fn put_object_file(
             );
             Ok(())
         }
+        Err(err) if err.to_string().contains("transfer cancelled") => Err(err),
         Err(err) => {
             emit_progress(
                 app,
@@ -383,13 +514,15 @@ pub async fn get_object_to_path(
     bucket: &str,
     key: &str,
     dest_path: &Path,
+    transfer_id: Option<String>,
+    cancel_token: Option<CancellationToken>,
 ) -> Result<()> {
     let file_name = Path::new(key)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(key)
         .to_string();
-    let transfer_id = Uuid::new_v4().to_string();
+    let transfer_id = transfer_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
     emit_progress(
         app,
@@ -410,22 +543,6 @@ pub async fn get_object_to_path(
         .context("get_object failed")?;
 
     let total = response.content_length().unwrap_or(0) as u64;
-    let body = response
-        .body
-        .collect()
-        .await
-        .context("failed to read object body")?
-        .into_bytes();
-
-    emit_progress(
-        app,
-        &transfer_id,
-        &file_name,
-        "download",
-        total,
-        total,
-        "in_progress",
-    );
 
     if let Some(parent) = dest_path.parent() {
         fs::create_dir_all(parent)
@@ -433,9 +550,73 @@ pub async fn get_object_to_path(
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
 
-    fs::write(dest_path, &body)
+    let mut file = fs::File::create(dest_path)
         .await
-        .with_context(|| format!("failed to write {}", dest_path.display()))?;
+        .with_context(|| format!("failed to create {}", dest_path.display()))?;
+
+    let mut body = response.body;
+    let mut downloaded: u64 = 0;
+
+    while let Some(chunk_res) = body.next().await {
+        // Cancel check before processing each chunk
+        if is_cancelled(&cancel_token) {
+            drop(file);
+            let _ = fs::remove_file(dest_path).await;
+            emit_progress(
+                app,
+                &transfer_id,
+                &file_name,
+                "download",
+                downloaded,
+                total,
+                "cancelled",
+            );
+            return Err(anyhow!("transfer cancelled"));
+        }
+
+        // Pause check
+        let cancelled_during_pause = wait_if_paused(
+            app,
+            &transfer_id,
+            &file_name,
+            "download",
+            downloaded,
+            total,
+            &cancel_token,
+        )
+        .await;
+        if cancelled_during_pause {
+            drop(file);
+            let _ = fs::remove_file(dest_path).await;
+            emit_progress(
+                app,
+                &transfer_id,
+                &file_name,
+                "download",
+                downloaded,
+                total,
+                "cancelled",
+            );
+            return Err(anyhow!("transfer cancelled"));
+        }
+
+        let chunk = chunk_res.context("failed to read response body chunk")?;
+        file.write_all(&chunk)
+            .await
+            .context("failed to write to destination file")?;
+        downloaded += chunk.len() as u64;
+        emit_progress(
+            app,
+            &transfer_id,
+            &file_name,
+            "download",
+            downloaded,
+            total,
+            "in_progress",
+        );
+    }
+
+    file.flush().await.context("failed to flush destination file")?;
 
     emit_progress(
         app,
@@ -543,4 +724,55 @@ pub fn join_prefix(prefix: &str, file_name: &str) -> String {
 
 pub fn local_dest_path(save_dir: &Path, key: &str) -> PathBuf {
     save_dir.join(key)
+}
+
+pub struct CopyItem {
+    pub src_key: String,
+    pub dest_key: String,
+}
+
+pub async fn copy_objects_batch(
+    app: &AppHandle,
+    client: &Client,
+    src_bucket: &str,
+    dest_bucket: &str,
+    items: &[CopyItem],
+) -> Result<()> {
+    for item in items {
+        let copy_source = format!("{src_bucket}/{}", item.src_key);
+        let transfer_id = Uuid::new_v4().to_string();
+        let file_name = Path::new(&item.src_key)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&item.src_key)
+            .to_string();
+
+        emit_progress(app, &transfer_id, &file_name, "copy", 0, 0, "started");
+
+        client
+            .copy_object()
+            .bucket(dest_bucket)
+            .key(&item.dest_key)
+            .copy_source(copy_source)
+            .send()
+            .await
+            .with_context(|| {
+                format!("copy_object failed: {} -> {}", item.src_key, item.dest_key)
+            })?;
+
+        emit_progress(app, &transfer_id, &file_name, "copy", 0, 0, "completed");
+    }
+    Ok(())
+}
+
+pub async fn move_objects_batch(
+    app: &AppHandle,
+    client: &Client,
+    src_bucket: &str,
+    dest_bucket: &str,
+    items: &[CopyItem],
+) -> Result<()> {
+    copy_objects_batch(app, client, src_bucket, dest_bucket, items).await?;
+    let src_keys: Vec<String> = items.iter().map(|i| i.src_key.clone()).collect();
+    delete_objects_batch(client, src_bucket, &src_keys).await
 }

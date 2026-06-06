@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -12,11 +12,13 @@ import {
   ArrowUp,
   ArrowUpDown,
   Copy,
+  CopyPlus,
   Download,
   File,
   Folder,
   FolderOpen,
   Loader2,
+  MoveRight,
   Pencil,
   RefreshCw,
   Trash2,
@@ -41,6 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import { formatBytes, formatDate } from "@/lib/utils";
 import type { S3Object } from "@/types/s3";
 
@@ -62,6 +65,10 @@ interface FileTableProps {
   onContextRefresh?: () => void;
   onContextCopyPath?: (object: S3Object) => void;
   onContextOpen?: (object: S3Object) => void;
+  onContextCopyTo?: () => void;
+  onContextMoveTo?: () => void;
+  draggable?: boolean;
+  onDropLocalPaths?: (paths: string[]) => void;
 }
 
 function SortIcon({ sorted }: { sorted: false | "asc" | "desc" }) {
@@ -90,6 +97,8 @@ function RowContextMenu({
   onContextRename,
   onContextCopyPath,
   onContextDelete,
+  onContextCopyTo,
+  onContextMoveTo,
 }: {
   object: S3Object;
   selectedKeys: Set<string>;
@@ -99,6 +108,8 @@ function RowContextMenu({
   onContextRename?: (object: S3Object) => void;
   onContextCopyPath?: (object: S3Object) => void;
   onContextDelete?: (objects: S3Object[]) => void;
+  onContextCopyTo?: () => void;
+  onContextMoveTo?: () => void;
 }) {
   const targets = resolveContextTargets(object, selectedKeys, objects);
   const single = targets.length === 1 ? targets[0] : null;
@@ -130,6 +141,19 @@ function RowContextMenu({
         <Copy className="h-4 w-4" />
         Copy path
       </ContextMenuItem>
+      {(onContextCopyTo || onContextMoveTo) && <ContextMenuSeparator />}
+      {onContextCopyTo && (
+        <ContextMenuItem onSelect={() => onContextCopyTo()}>
+          <CopyPlus className="h-4 w-4" />
+          Copy to…
+        </ContextMenuItem>
+      )}
+      {onContextMoveTo && (
+        <ContextMenuItem onSelect={() => onContextMoveTo()}>
+          <MoveRight className="h-4 w-4" />
+          Move to…
+        </ContextMenuItem>
+      )}
       <ContextMenuSeparator />
       <ContextMenuItem
         className="text-destructive focus:text-destructive"
@@ -186,8 +210,55 @@ export function FileTable({
   onContextRefresh,
   onContextCopyPath,
   onContextOpen,
+  onContextCopyTo,
+  onContextMoveTo,
+  draggable = true,
+  onDropLocalPaths,
 }: FileTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "name", desc: false }]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragOverRef = useRef(false);
+
+  function handleDragStart(e: React.DragEvent, object: S3Object) {
+    if (object.isFolder) return;
+    const fileKeys = selectedKeys.has(object.key)
+      ? objects.filter((o) => selectedKeys.has(o.key) && !o.isFolder).map((o) => o.key)
+      : [object.key];
+    e.dataTransfer.setData("application/paker-s3-keys", JSON.stringify(fileKeys));
+    e.dataTransfer.effectAllowed = "copy";
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    if (onDropLocalPaths && e.dataTransfer.types.includes("application/paker-local-paths")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      if (!dragOverRef.current) {
+        dragOverRef.current = true;
+        setIsDragOver(true);
+      }
+    }
+  }
+
+  function handleDragLeave() {
+    dragOverRef.current = false;
+    setIsDragOver(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    dragOverRef.current = false;
+    setIsDragOver(false);
+    const raw = e.dataTransfer.getData("application/paker-local-paths");
+    if (!raw || !onDropLocalPaths) return;
+    e.preventDefault();
+    try {
+      const paths = JSON.parse(raw) as string[];
+      if (Array.isArray(paths) && paths.length > 0) {
+        onDropLocalPaths(paths);
+      }
+    } catch {
+      // invalid drag data
+    }
+  }
 
   const columns = useMemo<ColumnDef<S3Object>[]>(
     () => [
@@ -276,7 +347,15 @@ export function FileTable({
     return (
       <ContextMenu>
         <ContextMenuTrigger asChild>
-          <div className="flex h-full min-h-[12rem] items-center justify-center p-8 text-sm text-muted-foreground">
+          <div
+            className={cn(
+              "flex h-full min-h-[12rem] items-center justify-center p-8 text-sm text-muted-foreground transition-colors",
+              isDragOver && "bg-primary/5 ring-2 ring-inset ring-primary"
+            )}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
             This folder is empty.
           </div>
         </ContextMenuTrigger>
@@ -288,7 +367,15 @@ export function FileTable({
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="min-h-full">
+        <div
+          className={cn(
+            "min-h-full transition-colors",
+            isDragOver && "bg-primary/5 ring-2 ring-inset ring-primary"
+          )}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-background">
               {table.getHeaderGroups().map((headerGroup) => (
@@ -319,6 +406,12 @@ export function FileTable({
                     <TableRow
                       data-state={selectedKeys.has(row.original.key) ? "selected" : undefined}
                       className="cursor-pointer"
+                      draggable={draggable && !row.original.isFolder}
+                      onDragStart={
+                        draggable && !row.original.isFolder
+                          ? (e) => handleDragStart(e, row.original)
+                          : undefined
+                      }
                       onClick={() => {
                         const key = row.original.key;
                         onToggleKey(key, !selectedKeys.has(key));
@@ -344,6 +437,8 @@ export function FileTable({
                     onContextRename={onContextRename}
                     onContextCopyPath={onContextCopyPath}
                     onContextDelete={onContextDelete}
+                    onContextCopyTo={onContextCopyTo}
+                    onContextMoveTo={onContextMoveTo}
                   />
                 </ContextMenu>
               ))}

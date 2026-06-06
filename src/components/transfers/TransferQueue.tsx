@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown, ChevronUp, Download, Upload, X } from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Download, Pause, Play, Upload, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -11,6 +11,9 @@ interface TransferQueueProps {
   transfers: TransferProgress[];
   activeCount: number;
   onClearCompleted: () => void;
+  onCancel: (transferId: string) => void;
+  onPause: (transferId: string) => void;
+  onResume: (transferId: string) => void;
 }
 
 function statusVariant(status: TransferProgress["status"]) {
@@ -21,9 +24,19 @@ function statusVariant(status: TransferProgress["status"]) {
       return "destructive" as const;
     case "in_progress":
       return "default" as const;
+    case "cancelled":
+      return "outline" as const;
+    case "paused":
+      return "secondary" as const;
     default:
       return "outline" as const;
   }
+}
+
+function directionIcon(direction: TransferProgress["direction"]) {
+  if (direction === "upload") return Upload;
+  if (direction === "copy") return Copy;
+  return Download;
 }
 
 function progressPercent(transfer: TransferProgress): number {
@@ -33,7 +46,14 @@ function progressPercent(transfer: TransferProgress): number {
   return Math.min(100, Math.round((transfer.bytes / transfer.total) * 100));
 }
 
-export function TransferQueue({ transfers, activeCount, onClearCompleted }: TransferQueueProps) {
+export function TransferQueue({
+  transfers,
+  activeCount,
+  onClearCompleted,
+  onCancel,
+  onPause,
+  onResume,
+}: TransferQueueProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   if (transfers.length === 0) return null;
@@ -65,7 +85,13 @@ export function TransferQueue({ transfers, activeCount, onClearCompleted }: Tran
           <div className="space-y-2 p-3">
             {transfers.map((transfer) => {
               const percent = progressPercent(transfer);
-              const Icon = transfer.direction === "upload" ? Upload : Download;
+              const Icon = directionIcon(transfer.direction);
+              const canCancel =
+                transfer.status === "started" ||
+                transfer.status === "in_progress" ||
+                transfer.status === "paused";
+              const canPause = transfer.status === "in_progress";
+              const canResume = transfer.status === "paused";
 
               return (
                 <div key={transfer.transferId} className="rounded-md border p-2">
@@ -73,13 +99,47 @@ export function TransferQueue({ transfers, activeCount, onClearCompleted }: Tran
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate text-sm">{transfer.fileName}</span>
                     <Badge variant={statusVariant(transfer.status)}>{transfer.status}</Badge>
-                    {transfer.status === "failed" && (
-                      <span className="text-xs text-destructive">
-                        <X className="inline h-3 w-3" />
-                      </span>
+                    {canResume && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => onResume(transfer.transferId)}
+                        title="Resume"
+                      >
+                        <Play className="h-3 w-3" />
+                      </Button>
+                    )}
+                    {canPause && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => onPause(transfer.transferId)}
+                        title="Pause"
+                      >
+                        <Pause className="h-3 w-3" />
+                      </Button>
+                    )}
+                    {canCancel && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => onCancel(transfer.transferId)}
+                        title="Cancel"
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
                     )}
                   </div>
-                  <Progress value={percent} className={cn(transfer.status === "failed" && "opacity-60")} />
+                  <Progress
+                    value={percent}
+                    className={cn(
+                      (transfer.status === "failed" || transfer.status === "cancelled") &&
+                        "opacity-60"
+                    )}
+                  />
                   <div className="mt-1 flex justify-between text-xs text-muted-foreground">
                     <span>
                       {formatBytes(transfer.bytes)}
@@ -89,6 +149,9 @@ export function TransferQueue({ transfers, activeCount, onClearCompleted }: Tran
                   </div>
                   {transfer.status === "failed" && (
                     <p className="mt-1 text-xs text-destructive">Transfer failed</p>
+                  )}
+                  {transfer.status === "cancelled" && (
+                    <p className="mt-1 text-xs text-muted-foreground">Transfer cancelled</p>
                   )}
                 </div>
               );

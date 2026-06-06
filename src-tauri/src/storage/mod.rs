@@ -1,6 +1,7 @@
 pub mod paths;
 pub mod profiles;
 pub mod secrets;
+pub mod ui_state;
 
 pub use profiles::{
     delete_connection, get_connection, list_connections, save_connection, ConnectionProfile,
