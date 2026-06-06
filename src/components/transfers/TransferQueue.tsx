@@ -1,0 +1,101 @@
+import { useState } from "react";
+import { ChevronDown, ChevronUp, Download, Upload, X } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { formatBytes, cn } from "@/lib/utils";
+import type { TransferProgress } from "@/types/s3";
+
+interface TransferQueueProps {
+  transfers: TransferProgress[];
+  activeCount: number;
+  onClearCompleted: () => void;
+}
+
+function statusVariant(status: TransferProgress["status"]) {
+  switch (status) {
+    case "completed":
+      return "secondary" as const;
+    case "failed":
+      return "destructive" as const;
+    case "in_progress":
+      return "default" as const;
+    default:
+      return "outline" as const;
+  }
+}
+
+function progressPercent(transfer: TransferProgress): number {
+  if (!transfer.total || transfer.total === 0) {
+    return transfer.status === "completed" ? 100 : 0;
+  }
+  return Math.min(100, Math.round((transfer.bytes / transfer.total) * 100));
+}
+
+export function TransferQueue({ transfers, activeCount, onClearCompleted }: TransferQueueProps) {
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (transfers.length === 0) return null;
+
+  return (
+    <div className="border-t bg-card">
+      <div className="flex items-center justify-between px-3 py-2">
+        <button
+          type="button"
+          className="flex items-center gap-2 text-sm font-medium"
+          onClick={() => setCollapsed((v) => !v)}
+        >
+          {collapsed ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          Transfers
+          {activeCount > 0 && (
+            <Badge variant="default" className="ml-1">
+              {activeCount} active
+            </Badge>
+          )}
+        </button>
+
+        <Button variant="ghost" size="sm" onClick={onClearCompleted}>
+          Clear completed
+        </Button>
+      </div>
+
+      {!collapsed && (
+        <ScrollArea className="max-h-48 border-t">
+          <div className="space-y-2 p-3">
+            {transfers.map((transfer) => {
+              const percent = progressPercent(transfer);
+              const Icon = transfer.direction === "upload" ? Upload : Download;
+
+              return (
+                <div key={transfer.transferId} className="rounded-md border p-2">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-sm">{transfer.fileName}</span>
+                    <Badge variant={statusVariant(transfer.status)}>{transfer.status}</Badge>
+                    {transfer.status === "failed" && (
+                      <span className="text-xs text-destructive">
+                        <X className="inline h-3 w-3" />
+                      </span>
+                    )}
+                  </div>
+                  <Progress value={percent} className={cn(transfer.status === "failed" && "opacity-60")} />
+                  <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+                    <span>
+                      {formatBytes(transfer.bytes)}
+                      {transfer.total ? ` / ${formatBytes(transfer.total)}` : ""}
+                    </span>
+                    <span>{percent}%</span>
+                  </div>
+                  {transfer.status === "failed" && (
+                    <p className="mt-1 text-xs text-destructive">Transfer failed</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </ScrollArea>
+      )}
+    </div>
+  );
+}
