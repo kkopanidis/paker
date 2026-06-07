@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Contributing guidelines
+    url: https://github.com/kkopanidis/paker/blob/main/CONTRIBUTING.md
+    about: Read how to contribute to this project
+  - name: Security policy
+    url: https://github.com/kkopanidis/paker/blob/main/SECURITY.md
+    about: Report security vulnerabilities responsibly
