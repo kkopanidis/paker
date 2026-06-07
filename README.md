@@ -1,6 +1,14 @@
 # Paker
 
+[![CI](https://github.com/kkopanidis/paker/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/kkopanidis/paker/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/kkopanidis/paker)](https://github.com/kkopanidis/paker/releases/latest)
+
 A modern, cross-platform desktop browser for S3-compatible storage. Built with Tauri 2, React, and the Rust AWS SDK.
+
+<!-- Screenshots: add docs/images/ when available -->
+
+*Screenshots coming soon.*
 
 ## Features
 
@@ -12,7 +20,19 @@ A modern, cross-platform desktop browser for S3-compatible storage. Built with T
 - **Portable mode** — place `portable.txt` next to the executable (or set `PAKER_PORTABLE=1`) to store all data in a local `./data/` folder
 - **No admin install required** — run from any writable directory
 
-## Layout (v0.2+)
+## Downloads
+
+Pre-built binaries are available on the [Releases](https://github.com/kkopanidis/paker/releases) page:
+
+| Platform | Artifacts |
+|----------|-----------|
+| macOS | arm64 and x64 |
+| Windows | NSIS installer and portable zip |
+| Linux | AppImage |
+
+> **Note:** Releases are unsigned initially. macOS and Windows may show security warnings until code signing is configured.
+
+## Layout (v0.5+)
 
 The main window is a horizontal split of resizable panels:
 
@@ -88,6 +108,11 @@ Shortcuts apply to the remote browser when it is focused and you are not typing 
 | F2 | Rename selected object |
 | ? | Show keyboard shortcuts help |
 | ⌘/ / Ctrl+/ | Show keyboard shortcuts help |
+
+## Community
+
+- [Contributing](CONTRIBUTING.md) — how to report issues, propose changes, and run checks before a PR
+- [Security](SECURITY.md) — how to report vulnerabilities responsibly
 
 ## License
 

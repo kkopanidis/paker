@@ -168,7 +168,7 @@ fn emit_progress(
 /// Check cancel token and, if the manager is available, block while the transfer is paused.
 /// Returns true if the transfer was cancelled during a pause wait.
 fn is_cancelled(cancel_token: &Option<CancellationToken>) -> bool {
-    cancel_token.as_ref().map_or(false, |t| t.is_cancelled())
+    cancel_token.as_ref().is_some_and(|t| t.is_cancelled())
 }
 
 async fn wait_if_paused(
@@ -182,7 +182,7 @@ async fn wait_if_paused(
 ) -> bool {
     let paused = app
         .try_state::<TransferManager>()
-        .map_or(false, |m| m.is_paused(transfer_id));
+        .is_some_and(|m| m.is_paused(transfer_id));
 
     if !paused {
         return false;
@@ -199,7 +199,7 @@ async fn wait_if_paused(
 
         let still_paused = app
             .try_state::<TransferManager>()
-            .map_or(false, |m| m.is_paused(transfer_id));
+            .is_some_and(|m| m.is_paused(transfer_id));
 
         if !still_paused {
             break;
@@ -343,7 +343,7 @@ async fn wait_if_index_paused(
 ) -> bool {
     let paused = app
         .try_state::<TransferManager>()
-        .map_or(false, |m| m.is_paused(job_id));
+        .is_some_and(|m| m.is_paused(job_id));
 
     if !paused {
         return false;
@@ -370,7 +370,7 @@ async fn wait_if_index_paused(
 
         let still_paused = app
             .try_state::<TransferManager>()
-            .map_or(false, |m| m.is_paused(job_id));
+            .is_some_and(|m| m.is_paused(job_id));
 
         if !still_paused {
             break;
@@ -380,6 +380,7 @@ async fn wait_if_index_paused(
     false
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn index_bucket_flat(
     app: &AppHandle,
     client: &Client,
@@ -793,6 +794,7 @@ async fn put_object_single(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn put_object_multipart(
     app: &AppHandle,
     client: &Client,
