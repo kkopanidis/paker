@@ -15,6 +15,15 @@ export interface UiPreferences {
   detailsPaneOpen: boolean;
   connectionsCollapsed: boolean;
   bucketsCollapsed: boolean;
+  checkForUpdates: boolean;
+}
+
+export interface UpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  releaseUrl: string;
+  releaseName: string;
 }
 
 export type PanelLayoutMode = "three" | "four";

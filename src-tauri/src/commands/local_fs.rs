@@ -1,11 +1,76 @@
+use crate::path_safety::is_path_under_root;
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 fn map_err(err: impl ToString) -> String {
     err.to_string()
+}
+
+fn home_dir() -> Result<PathBuf, String> {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map(PathBuf::from)
+        .map_err(|_| "could not determine home directory".to_string())
+}
+
+/// Tracks directories the UI may browse via `list_local_dir`.
+pub struct LocalFsScope {
+    home_dir: PathBuf,
+    picked_roots: Mutex<Vec<PathBuf>>,
+}
+
+impl LocalFsScope {
+    pub fn new() -> Result<Self, String> {
+        let home = home_dir()?;
+        let home_dir = home.canonicalize().unwrap_or(home);
+        Ok(Self {
+            home_dir,
+            picked_roots: Mutex::new(Vec::new()),
+        })
+    }
+
+    pub fn home_dir(&self) -> &Path {
+        &self.home_dir
+    }
+
+    pub fn register_picked_folder(&self, path: &Path) {
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let mut roots = self.picked_roots.lock().expect("picked_roots lock");
+        if !roots.iter().any(|root| root == &canonical) {
+            roots.push(canonical);
+        }
+    }
+
+    pub fn validate_access(&self, path: &Path) -> Result<PathBuf, String> {
+        if !path.exists() {
+            return Err(format!("path does not exist: {}", path.display()));
+        }
+
+        let canonical = path
+            .canonicalize()
+            .map_err(|e| format!("invalid path {}: {e}", path.display()))?;
+
+        if is_path_under_root(&canonical, &self.home_dir) {
+            return Ok(canonical);
+        }
+
+        let roots = self.picked_roots.lock().expect("picked_roots lock");
+        if roots
+            .iter()
+            .any(|root| is_path_under_root(&canonical, root))
+        {
+            return Ok(canonical);
+        }
+
+        Err(format!(
+            "path is outside allowed directories (home and folders opened via picker): {}",
+            path.display()
+        ))
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -19,9 +84,10 @@ pub struct LocalEntry {
 }
 
 #[tauri::command]
-pub async fn list_local_dir(_app: AppHandle, path: String) -> Result<Vec<LocalEntry>, String> {
-    let dir = Path::new(&path);
-    let read = fs::read_dir(dir).map_err(map_err)?;
+pub async fn list_local_dir(app: AppHandle, path: String) -> Result<Vec<LocalEntry>, String> {
+    let scope = app.state::<LocalFsScope>();
+    let dir = scope.validate_access(Path::new(&path))?;
+    let read = fs::read_dir(&dir).map_err(map_err)?;
 
     let mut entries: Vec<LocalEntry> = read
         .filter_map(|entry| entry.ok())
@@ -57,17 +123,25 @@ pub async fn list_local_dir(_app: AppHandle, path: String) -> Result<Vec<LocalEn
 }
 
 #[tauri::command]
-pub async fn get_home_dir() -> Result<String, String> {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "could not determine home directory".to_string())
+pub async fn get_home_dir(app: AppHandle) -> Result<String, String> {
+    Ok(app
+        .state::<LocalFsScope>()
+        .home_dir()
+        .to_string_lossy()
+        .into_owned())
 }
 
 #[tauri::command]
-pub async fn pick_local_folder() -> Result<Option<String>, String> {
+pub async fn pick_local_folder(app: AppHandle) -> Result<Option<String>, String> {
     let folder = rfd::FileDialog::new()
         .set_title("Select folder")
         .pick_folder();
+
+    if let Some(ref picked) = folder {
+        app.state::<LocalFsScope>()
+            .register_picked_folder(picked.as_path());
+    }
+
     Ok(folder.map(|p| p.to_string_lossy().into_owned()))
 }
 
@@ -113,4 +187,47 @@ fn days_to_ymd(z: i64) -> (i64, i64, i64) {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn allows_paths_under_home() {
+        let scope = LocalFsScope::new().expect("scope");
+        let allowed = scope
+            .validate_access(scope.home_dir())
+            .expect("home should be allowed");
+        assert_eq!(allowed, scope.home_dir().canonicalize().unwrap_or_else(|_| scope.home_dir().to_path_buf()));
+    }
+
+    #[test]
+    fn allows_paths_under_picked_folder_outside_home() {
+        let scope = LocalFsScope::new().expect("scope");
+        let picked = std::env::temp_dir();
+        scope.register_picked_folder(&picked);
+        let allowed = scope.validate_access(&picked).expect("picked root allowed");
+        assert_eq!(
+            allowed,
+            picked.canonicalize().unwrap_or_else(|_| picked.clone())
+        );
+    }
+
+    #[test]
+    fn rejects_paths_outside_allowed_roots() {
+        let scope = LocalFsScope::new().expect("scope");
+        let blocked = if cfg!(windows) {
+            PathBuf::from(r"C:\Windows")
+        } else {
+            PathBuf::from("/etc")
+        };
+        if !blocked.exists() {
+            return;
+        }
+        let err = scope
+            .validate_access(&blocked)
+            .expect_err("system path should be rejected");
+        assert!(err.contains("outside allowed directories"));
+    }
 }

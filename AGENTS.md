@@ -20,6 +20,10 @@ Short guide for AI coding agents working in this repository.
 
 Frontend talks to Rust only through `invoke()` — add commands in `commands/`, register them in `lib.rs`, and wrap them in `src/lib/tauri.ts`.
 
+## Trust boundary
+
+See [docs/architecture.md](docs/architecture.md) for the full trust model, capability inventory, and boundary audit. **Rule:** filesystem and native-dialog work stays in Rust (`rfd`, `std::fs`, commands)—do not add `@tauri-apps/plugin-fs` or `plugin-dialog`, and route all `invoke()` calls through `src/lib/tauri.ts`.
+
 ## Do not commit
 
 - `data/` — local portable/dev data directory
@@ -39,6 +43,6 @@ Match existing patterns: functional React components, Tailwind + Radix UI, Rust 
 
 ## Key constraints
 
-- Portable mode stores encrypted secrets under `./data/`; non-portable uses OS keychain + app data dir.
+- Portable mode stores encrypted secrets in `./data/secrets.enc` (static Argon2 KDF). Installed mode uses OS keychain only; legacy `secrets.enc` entries migrate to keychain on startup.
 - Never log or expose connection secrets in UI, errors, or telemetry.
 - S3 errors should surface user-actionable messages without leaking internal paths or keys.

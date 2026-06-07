@@ -1,4 +1,68 @@
 import { invoke } from "@tauri-apps/api/core";
+
+/** Structured error payload returned by Rust `PakerError` over IPC. */
+export interface PakerIpcError {
+  code: string;
+  message: string;
+  userAction?: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+/** Parse a rejected Tauri invoke error into a structured Paker IPC error. */
+export function parseStructuredError(error: unknown): PakerIpcError {
+  if (isRecord(error)) {
+    const code = typeof error.code === "string" ? error.code : undefined;
+    const message = typeof error.message === "string" ? error.message : undefined;
+    if (code && message) {
+      return {
+        code,
+        message,
+        userAction: typeof error.userAction === "string" ? error.userAction : undefined,
+      };
+    }
+  }
+
+  if (typeof error === "string") {
+    try {
+      const parsed: unknown = JSON.parse(error);
+      if (parsed !== error) {
+        return parseStructuredError(parsed);
+      }
+    } catch {
+      // plain string fallback
+    }
+    return { code: "unknown", message: error };
+  }
+
+  if (error instanceof Error) {
+    try {
+      const parsed: unknown = JSON.parse(error.message);
+      if (parsed !== error.message) {
+        return parseStructuredError(parsed);
+      }
+    } catch {
+      // plain message fallback
+    }
+    return { code: "unknown", message: error.message };
+  }
+
+  return { code: "unknown", message: String(error) };
+}
+
+/** Invoke a Tauri command and rethrow structured `PakerIpcError` on failure. */
+export async function invokeSafe<T>(
+  cmd: string,
+  args?: Record<string, unknown>
+): Promise<T> {
+  try {
+    return await invoke<T>(cmd, args);
+  } catch (error) {
+    throw parseStructuredError(error);
+  }
+}
 import type { S3Connection, S3ConnectionInput } from "@/types/connection";
 import type {
   BucketIndexMeta,
@@ -21,6 +85,7 @@ import type {
   PanelLayoutMode,
   PrefixBookmark,
   UiPreferences,
+  UpdateInfo,
 } from "@/types/ui";
 
 export interface SaveConnectionPayload extends S3ConnectionInput {
@@ -50,7 +115,7 @@ export function getConnection(id: string): Promise<S3Connection | null> {
 }
 
 export function saveConnection(payload: SaveConnectionPayload): Promise<S3Connection> {
-  return invoke<S3Connection>("save_connection", { input: mapConnectionInput(payload) });
+  return invokeSafe<S3Connection>("save_connection", { input: mapConnectionInput(payload) });
 }
 
 export function deleteConnection(id: string): Promise<void> {
@@ -58,7 +123,7 @@ export function deleteConnection(id: string): Promise<void> {
 }
 
 export function testConnection(id: string): Promise<void> {
-  return invoke<void>("test_connection", { id });
+  return invokeSafe<void>("test_connection", { id });
 }
 
 export function listBuckets(connectionId: string, forceAll = false): Promise<BucketInfo[]> {
@@ -418,4 +483,8 @@ export function exportBucketIndexCsv(
     bucket,
     savePath: savePath ?? null,
   });
+}
+
+export function checkForUpdate(): Promise<UpdateInfo> {
+  return invoke<UpdateInfo>("check_for_update");
 }

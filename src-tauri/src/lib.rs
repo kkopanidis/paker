@@ -1,9 +1,14 @@
 mod commands;
+mod error;
 mod index;
+mod path_safety;
 mod s3;
 mod storage;
 mod transfer;
 
+pub use error::PakerError;
+
+use commands::local_fs::LocalFsScope;
 use index::BucketIndexManager;
 use storage::ObjectCacheManager;
 use tauri::Manager;
@@ -15,9 +20,15 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(TransferManager::default())
         .manage(BucketIndexManager::default())
+        .manage(
+            LocalFsScope::new().unwrap_or_else(|error| panic!("failed to initialize local FS scope: {error}")),
+        )
         .setup(|app| {
             if !storage::paths::is_portable_mode() {
                 let _ = keyring::use_native_store(false);
+                storage::secrets::migrate_legacy_secrets(app.handle()).unwrap_or_else(|error| {
+                    panic!("failed to migrate legacy secrets: {error:#}");
+                });
             }
 
             let cache = ObjectCacheManager::new(app.handle()).unwrap_or_else(|error| {
@@ -77,6 +88,7 @@ pub fn run() {
             commands::bucket_index::cancel_bucket_index,
             commands::bucket_index::search_bucket_index,
             commands::bucket_index::export_bucket_index_csv,
+            commands::update::check_for_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

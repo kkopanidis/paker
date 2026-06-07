@@ -47,6 +47,10 @@ Before opening a PR:
 
 Keep PRs focused; prefer several small PRs over one large mixed change.
 
+### CI concurrency
+
+CI uses workflow concurrency with `cancel-in-progress: true` on each branch. Rapid merges to `main` cancel any still-running CI for the same ref, so only the latest commit is validated. This is expected — if your push was superseded, check the workflow run for the newest commit instead.
+
 ## Version and release process
 
 Versions are tracked in `src-tauri/tauri.conf.json` (source of truth for the app bundle).

@@ -3,10 +3,19 @@ import { toast } from "sonner";
 import {
   deleteConnection as deleteConnectionApi,
   listConnections,
+  parseStructuredError,
   saveConnection,
   testConnection,
+  type PakerIpcError,
 } from "@/lib/tauri";
 import type { S3Connection, S3ConnectionInput } from "@/types/connection";
+
+function formatIpcError(error: unknown): string {
+  const parsed: PakerIpcError = parseStructuredError(error);
+  return parsed.userAction
+    ? `${parsed.message} ${parsed.userAction}`
+    : parsed.message;
+}
 
 export function useConnections() {
   const [connections, setConnections] = useState<S3Connection[]>([]);
@@ -38,13 +47,20 @@ export function useConnections() {
 
   const save = useCallback(
     async (input: S3ConnectionInput, id?: string, options?: { quiet?: boolean }) => {
-      const saved = await saveConnection({ ...input, id });
-      await refresh();
-      setSelectedId(saved.id);
-      if (!options?.quiet) {
-        toast.success(id ? "Connection updated" : "Connection created");
+      try {
+        const saved = await saveConnection({ ...input, id });
+        await refresh();
+        setSelectedId(saved.id);
+        if (!options?.quiet) {
+          toast.success(id ? "Connection updated" : "Connection created");
+        }
+        return saved;
+      } catch (error) {
+        toast.error(id ? "Failed to update connection" : "Failed to create connection", {
+          description: formatIpcError(error),
+        });
+        throw error;
       }
-      return saved;
     },
     [refresh]
   );
@@ -67,7 +83,7 @@ export function useConnections() {
       });
     } catch (error) {
       toast.error("Connection test failed", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
       throw error;
     } finally {

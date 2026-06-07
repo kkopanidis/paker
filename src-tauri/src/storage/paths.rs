@@ -60,6 +60,10 @@ pub fn ui_state_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("ui_state.json"))
 }
 
+pub fn update_check_cache_path(app: &AppHandle) -> Result<PathBuf> {
+    Ok(data_dir(app)?.join("update_check_cache.json"))
+}
+
 pub fn index_db_path(app: &AppHandle) -> Result<PathBuf> {
     let path = data_dir(app)?.join("index").join("index.db");
     ensure_parent(&path)?;

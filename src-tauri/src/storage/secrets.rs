@@ -13,7 +13,7 @@ use tauri::AppHandle;
 const PORTABLE_KEY_MATERIAL: &str = "paker-portable-v1";
 const NONCE_LEN: usize = 12;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 struct ConnectionSecrets {
     secret_access_key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -52,7 +52,7 @@ impl<'de> Deserialize<'de> for ConnectionSecrets {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
 struct SecretsFile {
     secrets: HashMap<String, ConnectionSecrets>,
 }
@@ -121,6 +121,15 @@ fn write_file_secrets(app: &AppHandle, secrets: &SecretsFile) -> Result<()> {
     fs::write(&path, data).with_context(|| format!("failed to write {}", path.display()))
 }
 
+fn remove_file_secrets(app: &AppHandle) -> Result<()> {
+    let path = paths::secrets_path(app)?;
+    if path.exists() {
+        fs::remove_file(&path)
+            .with_context(|| format!("failed to remove legacy secrets file {}", path.display()))?;
+    }
+    Ok(())
+}
+
 fn keyring_entry(connection_id: &str) -> Result<Entry> {
     Entry::new("paker", connection_id).map_err(|e| anyhow!("failed to create keyring entry: {e}"))
 }
@@ -169,19 +178,21 @@ fn use_file_storage_only() -> bool {
 }
 
 fn get_connection_secrets(app: &AppHandle, connection_id: &str) -> Result<Option<ConnectionSecrets>> {
-    if let Some(secrets) = read_file_secrets(app)?
-        .secrets
-        .get(connection_id)
-        .cloned()
-    {
+    if use_file_storage_only() {
+        return Ok(read_file_secrets(app)?
+            .secrets
+            .get(connection_id)
+            .cloned());
+    }
+
+    if let Some(secrets) = read_keyring_secrets(connection_id)? {
         return Ok(Some(secrets));
     }
 
-    if use_file_storage_only() {
-        return Ok(None);
-    }
-
-    read_keyring_secrets(connection_id)
+    Ok(read_file_secrets(app)?
+        .secrets
+        .get(connection_id)
+        .cloned())
 }
 
 pub fn get_secret(app: &AppHandle, connection_id: &str) -> Result<Option<String>> {
@@ -205,27 +216,177 @@ pub fn set_secrets(
         session_token: session_token.map(|s| s.to_string()),
     };
 
-    let mut secrets = read_file_secrets(app)?;
-    secrets
-        .secrets
-        .insert(connection_id.to_string(), entry.clone());
-    write_file_secrets(app, &secrets)?;
+    if use_file_storage_only() {
+        let mut secrets = read_file_secrets(app)?;
+        secrets
+            .secrets
+            .insert(connection_id.to_string(), entry);
+        write_file_secrets(app, &secrets)?;
+        return Ok(());
+    }
 
-    if !use_file_storage_only() {
-        let _ = write_keyring_secrets(connection_id, &entry);
+    write_keyring_secrets(connection_id, &entry)
+}
+
+pub fn delete_secret(app: &AppHandle, connection_id: &str) -> Result<()> {
+    if use_file_storage_only() {
+        let mut secrets = read_file_secrets(app)?;
+        if secrets.secrets.remove(connection_id).is_some() {
+            if secrets.secrets.is_empty() {
+                remove_file_secrets(app)?;
+            } else {
+                write_file_secrets(app, &secrets)?;
+            }
+        }
+        return Ok(());
+    }
+
+    delete_keyring_secret(connection_id)?;
+
+    let mut secrets = read_file_secrets(app)?;
+    if secrets.secrets.remove(connection_id).is_some() {
+        if secrets.secrets.is_empty() {
+            remove_file_secrets(app)?;
+        } else {
+            write_file_secrets(app, &secrets)?;
+        }
     }
 
     Ok(())
 }
 
-pub fn delete_secret(app: &AppHandle, connection_id: &str) -> Result<()> {
-    if !use_file_storage_only() {
-        let _ = delete_keyring_secret(connection_id);
+/// One-time migration: move legacy `secrets.enc` entries into the OS keychain (installed mode only).
+pub fn migrate_legacy_secrets(app: &AppHandle) -> Result<()> {
+    if use_file_storage_only() {
+        return Ok(());
     }
 
-    let mut secrets = read_file_secrets(app)?;
-    if secrets.secrets.remove(connection_id).is_some() {
-        write_file_secrets(app, &secrets)?;
+    let mut file_secrets = read_file_secrets(app)?;
+    if file_secrets.secrets.is_empty() {
+        return Ok(());
     }
+
+    let legacy_ids: Vec<String> = file_secrets.secrets.keys().cloned().collect();
+
+    for connection_id in legacy_ids {
+        let Some(entry) = file_secrets.secrets.get(&connection_id).cloned() else {
+            continue;
+        };
+
+        if read_keyring_secrets(&connection_id)?.is_none() {
+            write_keyring_secrets(&connection_id, &entry)?;
+        }
+
+        file_secrets.secrets.remove(&connection_id);
+    }
+
+    if file_secrets.secrets.is_empty() {
+        remove_file_secrets(app)?;
+    } else {
+        write_file_secrets(app, &file_secrets)?;
+    }
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn portable_encrypt_decrypt_round_trip() {
+        let secrets = SecretsFile {
+            secrets: HashMap::from([(
+                "conn-1".to_string(),
+                ConnectionSecrets {
+                    secret_access_key: "secret-key".to_string(),
+                    session_token: Some("session".to_string()),
+                },
+            )]),
+        };
+
+        let encrypted = encrypt_secrets(&secrets).expect("encrypt");
+        let decrypted = decrypt_secrets(&encrypted).expect("decrypt");
+        assert_eq!(decrypted, secrets);
+    }
+
+    #[test]
+    fn portable_encrypt_decrypt_plain_secret_round_trip() {
+        let secrets = SecretsFile {
+            secrets: HashMap::from([(
+                "conn-2".to_string(),
+                ConnectionSecrets {
+                    secret_access_key: "only-secret".to_string(),
+                    session_token: None,
+                },
+            )]),
+        };
+
+        let encrypted = encrypt_secrets(&secrets).expect("encrypt");
+        let decrypted = decrypt_secrets(&encrypted).expect("decrypt");
+        assert_eq!(decrypted, secrets);
+    }
+
+    #[test]
+    fn decrypt_rejects_short_ciphertext() {
+        let err = decrypt_secrets(&[0u8; NONCE_LEN]).unwrap_err();
+        assert!(err.to_string().contains("too short"));
+    }
+
+    #[test]
+    fn parse_keyring_plain_value() {
+        let parsed = parse_keyring_value("my-secret");
+        assert_eq!(
+            parsed,
+            ConnectionSecrets {
+                secret_access_key: "my-secret".to_string(),
+                session_token: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parse_keyring_json_value_with_session_token() {
+        let value = r#"{"secret_access_key":"key","session_token":"tok"}"#;
+        let parsed = parse_keyring_value(value);
+        assert_eq!(
+            parsed,
+            ConnectionSecrets {
+                secret_access_key: "key".to_string(),
+                session_token: Some("tok".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn serialize_keyring_plain_when_no_session_token() {
+        let secrets = ConnectionSecrets {
+            secret_access_key: "plain".to_string(),
+            session_token: None,
+        };
+        assert_eq!(serialize_keyring_value(&secrets), "plain");
+    }
+
+    #[test]
+    fn serialize_keyring_json_when_session_token_present() {
+        let secrets = ConnectionSecrets {
+            secret_access_key: "key".to_string(),
+            session_token: Some("tok".to_string()),
+        };
+        assert_eq!(
+            serialize_keyring_value(&secrets),
+            r#"{"secret_access_key":"key","session_token":"tok"}"#
+        );
+    }
+
+    #[test]
+    fn use_file_storage_only_respects_portable_env() {
+        let previous = std::env::var("PAKER_PORTABLE").ok();
+        std::env::set_var("PAKER_PORTABLE", "1");
+        assert!(use_file_storage_only());
+        match previous {
+            Some(value) => std::env::set_var("PAKER_PORTABLE", value),
+            None => std::env::remove_var("PAKER_PORTABLE"),
+        }
+    }
 }

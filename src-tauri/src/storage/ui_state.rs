@@ -33,6 +33,8 @@ pub struct UiPreferences {
     pub connections_collapsed: bool,
     #[serde(default = "default_true")]
     pub buckets_collapsed: bool,
+    #[serde(default = "default_true")]
+    pub check_for_updates: bool,
 }
 
 fn default_details_open() -> bool {

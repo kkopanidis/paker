@@ -56,6 +56,7 @@ import type { ObjectHeadResponse, PrefixSizeResult, S3Object } from "@/types/s3"
 import type { PrefixBookmark } from "@/types/ui";
 import { LocalPanelToggle } from "./LocalPanelToggle";
 import { ThemeToggle } from "./ThemeToggle";
+import { UpdateBanner } from "./UpdateBanner";
 
 export function AppShell() {
   const connections = useConnections();
@@ -673,6 +674,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen flex-col">
+      <UpdateBanner enabled={ui.ready && ui.preferences.checkForUpdates} />
       <header className="flex h-12 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
