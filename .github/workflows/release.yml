@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: --target aarch64-apple-darwin
+          - platform: macos-latest
+            args: --target x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && replace(matrix.args, '--target ', '') || '' }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - run: npm ci
+
+      - name: Build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Paker v__VERSION__
+          releaseBody: See CHANGELOG.md
+          releaseDraft: true
+          args: ${{ matrix.args }}
+
+      - name: Package Windows portable zip
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $exe = "src-tauri/target/release/paker.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Expected binary not found: $exe"
+          }
+          $staging = "dist/portable-windows"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item $exe "$staging/paker.exe"
+          New-Item -ItemType File -Force -Path "$staging/portable.txt" | Out-Null
+          $zip = "dist/Paker-$version-windows-portable.zip"
+          if (Test-Path $zip) { Remove-Item $zip }
+          Compress-Archive -Path "$staging/paker.exe", "$staging/portable.txt" -DestinationPath $zip
+
+      - name: Upload Windows portable asset
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          gh release upload "${{ github.ref_name }}" "dist/Paker-${VERSION}-windows-portable.zip" --clobber
