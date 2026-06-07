@@ -3,6 +3,7 @@ use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{anyhow, Context, Result};
 use argon2::{Algorithm, Argon2, Params, Version};
+use keyring_core::{Entry, Error as KeyringError};
 use rand::RngCore;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
@@ -72,7 +73,7 @@ fn encrypt_secrets(secrets: &SecretsFile) -> Result<Vec<u8>> {
     let key = derive_portable_key()?;
     let cipher = Aes256Gcm::new_from_slice(&key).context("invalid AES key")?;
     let mut nonce_bytes = [0u8; NONCE_LEN];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
 
     let plaintext =
@@ -120,8 +121,8 @@ fn write_file_secrets(app: &AppHandle, secrets: &SecretsFile) -> Result<()> {
     fs::write(&path, data).with_context(|| format!("failed to write {}", path.display()))
 }
 
-fn keyring_entry(connection_id: &str) -> Result<keyring::Entry> {
-    keyring::Entry::new("paker", connection_id).context("failed to create keyring entry")
+fn keyring_entry(connection_id: &str) -> Result<Entry> {
+    Entry::new("paker", connection_id).map_err(|e| anyhow!("failed to create keyring entry: {e}"))
 }
 
 fn parse_keyring_value(value: &str) -> ConnectionSecrets {
@@ -145,7 +146,7 @@ fn serialize_keyring_value(secrets: &ConnectionSecrets) -> String {
 fn read_keyring_secrets(connection_id: &str) -> Result<Option<ConnectionSecrets>> {
     match keyring_entry(connection_id)?.get_password() {
         Ok(value) => Ok(Some(parse_keyring_value(&value))),
-        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(KeyringError::NoEntry) => Ok(None),
         Err(e) => Err(anyhow!("keyring read failed: {e}")),
     }
 }
@@ -158,7 +159,7 @@ fn write_keyring_secrets(connection_id: &str, secrets: &ConnectionSecrets) -> Re
 
 fn delete_keyring_secret(connection_id: &str) -> Result<()> {
     match keyring_entry(connection_id)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
         Err(e) => Err(anyhow!("keyring delete failed: {e}")),
     }
 }

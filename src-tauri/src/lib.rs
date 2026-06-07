@@ -16,6 +16,10 @@ pub fn run() {
         .manage(TransferManager::default())
         .manage(BucketIndexManager::default())
         .setup(|app| {
+            if !storage::paths::is_portable_mode() {
+                let _ = keyring::use_native_store(false);
+            }
+
             let cache = ObjectCacheManager::new(app.handle()).unwrap_or_else(|error| {
                 panic!("failed to initialize object cache: {error:#}");
             });
