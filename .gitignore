@@ -13,7 +13,8 @@ dist-ssr
 *.local
 
 # Editor directories and files
-# Keep .cursor/ (rules, skills, plans) in version control
+# Editor-local Cursor config (not versioned)
+.cursor/
 .vscode/*
 !.vscode/extensions.json
 .idea
