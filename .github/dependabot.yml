@@ -5,9 +5,32 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      dev-toolchain:
+        patterns:
+          - "typescript"
+          - "vite"
+          - "@vitejs/plugin-react"
+        update-types:
+          - "minor"
+          - "patch"
+          - "major"
 
   - package-ecosystem: cargo
     directory: "/src-tauri"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Re-enable when Phase 3 lands
+      - dependency-name: keyring
+        update-types: ["version-update:semver-major"]
+      - dependency-name: rand
+        update-types: ["version-update:semver-major"]
+      - dependency-name: rusqlite
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
