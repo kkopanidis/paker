@@ -51,7 +51,8 @@ jobs:
       - run: npm audit --audit-level=high --omit=dev
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit --locked
-      - run: cargo audit --manifest-path src-tauri/Cargo.toml
+      - run: cargo audit
+        working-directory: src-tauri
 
   rust:
     runs-on: ubuntu-22.04
