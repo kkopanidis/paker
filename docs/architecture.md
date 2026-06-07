@@ -8,6 +8,19 @@ The **webview** (React + Vite) is untrusted UI code. It must not read arbitrary 
 
 The **Rust backend** holds credentials (keychain or encrypted portable store), validates inputs, scopes paths, and emits progress events. Custom `invoke` handlers are allowed for all registered commands by default; plugin APIs require explicit capability permissions.
 
+### Portable mode and `secrets.enc`
+
+In portable mode (`portable.txt` or `PAKER_PORTABLE=1`), connection secrets live in `./data/secrets.enc`, encrypted with AES-256-GCM. Key derivation uses Argon2id:
+
+| KDF | When | Material |
+|-----|------|----------|
+| **v2** (preferred) | OS keychain / secret service available | 32-byte random seed in keychain entry `paker` / `portable-file-key`, concatenated with static app material, salt `paker-portable-salt-v2` |
+| **v1** (legacy fallback) | Keyring unavailable (CI, headless) | Static material only, salt `paker-portable-salt-v1` |
+
+**Limitation:** Legacy v1 blobs are offline-decryptable given `secrets.enc`. With v2, `secrets.enc` alone is not enough—the per-host keyring seed on the same machine is also required. On read, v1 blobs are transparently re-encrypted to v2 when the keyring seed is available.
+
+Sensitive files under `./data/` use mode `0o600` on Unix. On Windows portable installs, access control follows NTFS ACLs on the data directory rather than a Unix permission bitmask.
+
 ```
 ┌─────────────────────────────────────┐
 │  Webview (React)                    │
@@ -67,10 +80,14 @@ The main capability does **not** include:
 
 S3 HTTP traffic runs in Rust via `aws-sdk-s3`, not the Tauri HTTP plugin.
 
+## Desktop-only
+
+Paker targets **desktop only** (macOS, Windows, Linux). The crate retains `mobile_entry_point` and mobile library types for Tauri template compatibility, but there is no mobile UI or release pipeline. Do not add `tauri-plugin-fs` / `tauri-plugin-dialog` without updating this document.
+
 ## Deferred (future phases)
 
 - **Code signing** — production distribution hardening (platform-specific).
-- **`tauri-plugin-updater`** — in-app updates; not integrated yet.
+- **`tauri-plugin-updater`** — in-app updates; not integrated yet (GitHub release banner only).
 
 ## Boundary audit
 

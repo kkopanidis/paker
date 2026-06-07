@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use crate::path_safety::local_dest_path as safe_local_dest_path;
 use crate::storage::bucket_index::{BucketIndexMeta, BucketIndexProgress, IndexedObject};
+use crate::storage::paths::set_private_file_permissions;
 use crate::storage::ObjectCacheManager;
 use crate::transfer::TransferManager;
 
@@ -1194,6 +1195,12 @@ pub async fn rename_object(
     old_key: &str,
     new_key: &str,
 ) -> Result<(), PakerError> {
+    crate::path_safety::validate_s3_object_key(old_key).map_err(|_| {
+        PakerError::InvalidInput("Invalid source object key".to_string())
+    })?;
+    crate::path_safety::validate_s3_object_key(new_key).map_err(|_| {
+        PakerError::InvalidInput("Invalid destination object key".to_string())
+    })?;
     let copy_source = format!("{bucket}/{old_key}");
     client
         .copy_object()
@@ -1213,6 +1220,14 @@ pub async fn create_folder(
     prefix: &str,
     folder_name: &str,
 ) -> Result<(), PakerError> {
+    crate::path_safety::validate_s3_key_segment(folder_name).map_err(|_| {
+        PakerError::InvalidInput("Invalid folder name".to_string())
+    })?;
+    if !prefix.is_empty() {
+        crate::path_safety::validate_s3_object_key(prefix).map_err(|_| {
+            PakerError::InvalidInput("Invalid prefix".to_string())
+        })?;
+    }
     let mut key = prefix.to_string();
     if !key.is_empty() && !key.ends_with('/') {
         key.push('/');
@@ -1235,6 +1250,13 @@ pub async fn create_folder(
 }
 
 pub fn join_prefix(prefix: &str, file_name: &str) -> String {
+    let base_name = Path::new(file_name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(file_name);
+    if let Err(err) = crate::path_safety::validate_s3_key_segment(base_name) {
+        tracing::warn!(error = %err, "invalid upload file name for S3 key");
+    }
     let mut key = prefix.to_string();
     if !key.is_empty() && !key.ends_with('/') {
         key.push('/');
@@ -1305,9 +1327,11 @@ pub async fn preview_object_to_cache(
     }
 
     get_object_to_path(app, client, bucket, key, &dest, None, None).await?;
+    set_private_file_permissions(&dest)?;
 
     if let Some(etag) = &head.etag {
-        let _ = fs::write(&etag_sidecar, etag).await;
+        fs::write(&etag_sidecar, etag).await?;
+        set_private_file_permissions(&etag_sidecar)?;
     }
 
     Ok(dest.to_string_lossy().into_owned())

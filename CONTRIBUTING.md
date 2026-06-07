@@ -41,8 +41,9 @@ Before opening a PR:
 1. **Link an issue** when one exists (or explain the motivation in the PR description).
 2. **Screenshots or screen recordings** for any UI change.
 3. Run checks locally:
+   - `npm run lint`
+   - `npm run test:all`
    - `npm run build`
-   - `npm run test:rust`
 4. Match existing code style — follow patterns in nearby files for naming, module layout, and error handling. Do not commit `data/`, secrets, or local editor artifacts.
 
 Keep PRs focused; prefer several small PRs over one large mixed change.

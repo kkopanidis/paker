@@ -51,7 +51,7 @@ fn write_all(app: &AppHandle, profiles: &[ConnectionProfile]) -> Result<()> {
     paths::ensure_parent(&path)?;
     let contents =
         serde_json::to_string_pretty(profiles).context("failed to serialize connections")?;
-    fs::write(&path, contents).with_context(|| format!("failed to write {}", path.display()))
+    paths::write_private_file(&path, contents.as_bytes())
 }
 
 pub fn list_connections(app: &AppHandle) -> Result<Vec<ConnectionProfile>> {

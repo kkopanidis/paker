@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { calculatePrefixSize } from "@/lib/tauri";
+import { calculatePrefixSize, formatIpcError } from "@/lib/tauri";
 import { formatBytes } from "@/lib/utils";
 import type { PrefixSizeProgress, PrefixSizeResult } from "@/types/s3";
 
@@ -74,7 +74,7 @@ export function SizeCalculationDialog({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(formatIpcError(err));
         }
       } finally {
         if (!cancelled) setRunning(false);

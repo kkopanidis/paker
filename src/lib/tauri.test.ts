@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { invokeSafe, parseStructuredError } from "./tauri";
+import { formatIpcError, invokeSafe, parseStructuredError } from "./tauri";
 
 afterEach(() => {
   clearMocks();
@@ -32,6 +32,57 @@ describe("parseStructuredError", () => {
     ).toEqual({
       code: "s3_error",
       message: "Access denied",
+      userAction: undefined,
+    });
+  });
+});
+
+describe("formatIpcError", () => {
+  it("includes userAction when present", () => {
+    expect(
+      formatIpcError({
+        code: "pathNotAllowed",
+        message: "Path is not allowed",
+        userAction: "Use the file picker.",
+      })
+    ).toBe("Path is not allowed Use the file picker.");
+  });
+
+  it("returns message only when userAction is absent", () => {
+    expect(
+      formatIpcError({
+        code: "invalid_input",
+        message: "Invalid path",
+      })
+    ).toBe("Invalid path");
+  });
+
+  it("formats plain Error instances", () => {
+    expect(formatIpcError(new Error("network timeout"))).toBe("network timeout");
+  });
+});
+
+describe("parseStructuredError edge cases", () => {
+  it("falls back for unknown object shapes", () => {
+    expect(parseStructuredError({ foo: "bar" })).toEqual({
+      code: "unknown",
+      message: "[object Object]",
+    });
+  });
+
+  it("parses Error with JSON message payload", () => {
+    expect(
+      parseStructuredError(
+        new Error(
+          JSON.stringify({
+            code: "path_not_allowed",
+            message: "Path is not allowed",
+          })
+        )
+      )
+    ).toEqual({
+      code: "path_not_allowed",
+      message: "Path is not allowed",
       userAction: undefined,
     });
   });

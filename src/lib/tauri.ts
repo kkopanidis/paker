@@ -63,6 +63,15 @@ export async function invokeSafe<T>(
     throw parseStructuredError(error);
   }
 }
+
+/** Format a structured IPC error for toast display. */
+export function formatIpcError(error: unknown): string {
+  const parsed = parseStructuredError(error);
+  if (parsed.userAction) {
+    return `${parsed.message} ${parsed.userAction}`;
+  }
+  return parsed.message;
+}
 import type { S3Connection, S3ConnectionInput } from "@/types/connection";
 import type {
   BucketIndexMeta,
@@ -107,11 +116,11 @@ function mapConnectionInput(payload: SaveConnectionPayload) {
 }
 
 export function listConnections(): Promise<S3Connection[]> {
-  return invoke<S3Connection[]>("list_connections");
+  return invokeSafe<S3Connection[]>("list_connections");
 }
 
 export function getConnection(id: string): Promise<S3Connection | null> {
-  return invoke<S3Connection | null>("get_connection", { id });
+  return invokeSafe<S3Connection | null>("get_connection", { id });
 }
 
 export function saveConnection(payload: SaveConnectionPayload): Promise<S3Connection> {
@@ -119,7 +128,7 @@ export function saveConnection(payload: SaveConnectionPayload): Promise<S3Connec
 }
 
 export function deleteConnection(id: string): Promise<void> {
-  return invoke<boolean>("delete_connection", { id }).then(() => undefined);
+  return invokeSafe<boolean>("delete_connection", { id }).then(() => undefined);
 }
 
 export function testConnection(id: string): Promise<void> {
@@ -127,11 +136,11 @@ export function testConnection(id: string): Promise<void> {
 }
 
 export function listBuckets(connectionId: string, forceAll = false): Promise<BucketInfo[]> {
-  return invoke<BucketInfo[]>("list_buckets", { connectionId, forceAll });
+  return invokeSafe<BucketInfo[]>("list_buckets", { connectionId, forceAll });
 }
 
 export function verifyBucket(connectionId: string, bucket: string): Promise<void> {
-  return invoke<void>("verify_bucket", { connectionId, bucket: bucket.trim() });
+  return invokeSafe<void>("verify_bucket", { connectionId, bucket: bucket.trim() });
 }
 
 export function readListCache(
@@ -139,7 +148,7 @@ export function readListCache(
   bucket: string,
   prefix?: string
 ): Promise<CachedListResult | null> {
-  return invoke<CachedListResult | null>("read_list_cache", {
+  return invokeSafe<CachedListResult | null>("read_list_cache", {
     connectionId,
     bucket,
     prefix: prefix ?? null,
@@ -153,7 +162,7 @@ export function listObjects(
   continuationToken?: string,
   forceRefresh?: boolean
 ): Promise<ListObjectsResponse> {
-  return invoke<ListObjectsResponse>("list_objects", {
+  return invokeSafe<ListObjectsResponse>("list_objects", {
     connectionId,
     bucket,
     prefix: prefix ?? null,
@@ -196,7 +205,7 @@ export function headObject(
   key: string,
   forceRefresh?: boolean
 ): Promise<ObjectHeadResponse> {
-  return invoke<ObjectHeadResponse>("head_object", {
+  return invokeSafe<ObjectHeadResponse>("head_object", {
     connectionId,
     bucket,
     key,
@@ -209,11 +218,11 @@ export function checkObjectsExist(
   bucket: string,
   keys: string[]
 ): Promise<string[]> {
-  return invoke<string[]>("check_objects_exist", { connectionId, bucket, keys });
+  return invokeSafe<string[]>("check_objects_exist", { connectionId, bucket, keys });
 }
 
 export function pickUploadFiles(): Promise<string[]> {
-  return invoke<string[]>("pick_upload_files");
+  return invokeSafe<string[]>("pick_upload_files");
 }
 
 export function uploadFiles(
@@ -222,7 +231,7 @@ export function uploadFiles(
   prefix: string,
   localPaths?: string[]
 ): Promise<string[]> {
-  return invoke<string[]>("upload_files", {
+  return invokeSafe<string[]>("upload_files", {
     connectionId,
     bucket,
     prefix,
@@ -236,7 +245,7 @@ export function downloadFiles(
   keys: string[],
   saveDir?: string
 ): Promise<string[]> {
-  return invoke<string[]>("download_files", {
+  return invokeSafe<string[]>("download_files", {
     connectionId,
     bucket,
     keys,
@@ -249,7 +258,7 @@ export function deleteObjects(
   bucket: string,
   keys: string[]
 ): Promise<void> {
-  return invoke<void>("delete_objects", { connectionId, bucket, keys });
+  return invokeSafe<void>("delete_objects", { connectionId, bucket, keys });
 }
 
 export function renameObject(
@@ -258,7 +267,7 @@ export function renameObject(
   oldKey: string,
   newKey: string
 ): Promise<void> {
-  return invoke<void>("rename_object", { connectionId, bucket, oldKey, newKey });
+  return invokeSafe<void>("rename_object", { connectionId, bucket, oldKey, newKey });
 }
 
 export function createFolder(
@@ -267,7 +276,7 @@ export function createFolder(
   prefix: string,
   folderName: string
 ): Promise<string> {
-  return invoke<string>("create_folder", {
+  return invokeSafe<string>("create_folder", {
     connectionId,
     bucket,
     prefix,
@@ -276,15 +285,15 @@ export function createFolder(
 }
 
 export function cancelTransfer(transferId: string): Promise<void> {
-  return invoke<void>("cancel_transfer", { transferId });
+  return invokeSafe<void>("cancel_transfer", { transferId });
 }
 
 export function pauseTransfer(transferId: string): Promise<void> {
-  return invoke<void>("pause_transfer", { transferId });
+  return invokeSafe<void>("pause_transfer", { transferId });
 }
 
 export function resumeTransfer(transferId: string): Promise<void> {
-  return invoke<void>("resume_transfer", { transferId });
+  return invokeSafe<void>("resume_transfer", { transferId });
 }
 
 export function copyObjects(
@@ -294,7 +303,7 @@ export function copyObjects(
   items: CopyMoveItem[],
   destPrefix?: string
 ): Promise<void> {
-  return invoke<void>("copy_objects", {
+  return invokeSafe<void>("copy_objects", {
     connectionId,
     srcBucket,
     destBucket,
@@ -310,7 +319,7 @@ export function moveObjects(
   items: CopyMoveItem[],
   destPrefix?: string
 ): Promise<void> {
-  return invoke<void>("move_objects", {
+  return invokeSafe<void>("move_objects", {
     connectionId,
     srcBucket,
     destBucket,
@@ -320,31 +329,31 @@ export function moveObjects(
 }
 
 export function listLocalDir(path: string): Promise<LocalEntry[]> {
-  return invoke<LocalEntry[]>("list_local_dir", { path });
+  return invokeSafe<LocalEntry[]>("list_local_dir", { path });
 }
 
 export function getHomeDir(): Promise<string> {
-  return invoke<string>("get_home_dir");
+  return invokeSafe<string>("get_home_dir");
 }
 
 export function pickLocalFolder(): Promise<string | null> {
-  return invoke<string | null>("pick_local_folder");
+  return invokeSafe<string | null>("pick_local_folder");
 }
 
 export function getParentPath(path: string): Promise<string | null> {
-  return invoke<string | null>("get_parent_path", { path });
+  return invokeSafe<string | null>("get_parent_path", { path });
 }
 
 export function getLastLocalDir(connectionId: string): Promise<string | null> {
-  return invoke<string | null>("get_last_local_dir", { connectionId });
+  return invokeSafe<string | null>("get_last_local_dir", { connectionId });
 }
 
 export function setLastLocalDir(connectionId: string, path: string): Promise<void> {
-  return invoke<void>("set_last_local_dir", { connectionId, path });
+  return invokeSafe<void>("set_last_local_dir", { connectionId, path });
 }
 
 export function getTransferSettings(): Promise<TransferSettings> {
-  return invoke<TransferSettings>("get_transfer_settings");
+  return invokeSafe<TransferSettings>("get_transfer_settings");
 }
 
 export function calculatePrefixSize(
@@ -353,7 +362,7 @@ export function calculatePrefixSize(
   prefix?: string,
   forceRefresh?: boolean
 ): Promise<PrefixSizeResult> {
-  return invoke<PrefixSizeResult>("calculate_prefix_size", {
+  return invokeSafe<PrefixSizeResult>("calculate_prefix_size", {
     connectionId,
     bucket,
     prefix: prefix ?? null,
@@ -365,47 +374,47 @@ export function getBucketMetadata(
   connectionId: string,
   bucket: string
 ): Promise<BucketMetadata> {
-  return invoke<BucketMetadata>("get_bucket_metadata", { connectionId, bucket });
+  return invokeSafe<BucketMetadata>("get_bucket_metadata", { connectionId, bucket });
 }
 
 export function getFullUiState(): Promise<FullUiState> {
-  return invoke<FullUiState>("get_full_ui_state");
+  return invokeSafe<FullUiState>("get_full_ui_state");
 }
 
 export function getConnectionNav(connectionId: string): Promise<ConnectionNav | null> {
-  return invoke<ConnectionNav | null>("get_connection_nav", { connectionId });
+  return invokeSafe<ConnectionNav | null>("get_connection_nav", { connectionId });
 }
 
 export function setConnectionNav(connectionId: string, nav: ConnectionNav): Promise<void> {
-  return invoke<void>("set_connection_nav", { connectionId, nav });
+  return invokeSafe<void>("set_connection_nav", { connectionId, nav });
 }
 
 export function getBookmarks(connectionId: string): Promise<PrefixBookmark[]> {
-  return invoke<PrefixBookmark[]>("get_bookmarks", { connectionId });
+  return invokeSafe<PrefixBookmark[]>("get_bookmarks", { connectionId });
 }
 
 export function addBookmark(connectionId: string, bookmark: PrefixBookmark): Promise<void> {
-  return invoke<void>("add_bookmark", { connectionId, bookmark });
+  return invokeSafe<void>("add_bookmark", { connectionId, bookmark });
 }
 
 export function removeBookmark(connectionId: string, bookmarkId: string): Promise<void> {
-  return invoke<void>("remove_bookmark", { connectionId, bookmarkId });
+  return invokeSafe<void>("remove_bookmark", { connectionId, bookmarkId });
 }
 
 export function getUiPreferences(): Promise<UiPreferences> {
-  return invoke<UiPreferences>("get_ui_preferences");
+  return invokeSafe<UiPreferences>("get_ui_preferences");
 }
 
 export function setUiPreferences(preferences: UiPreferences): Promise<void> {
-  return invoke<void>("set_ui_preferences", { preferences });
+  return invokeSafe<void>("set_ui_preferences", { preferences });
 }
 
 export function getPanelLayout(mode: PanelLayoutMode): Promise<PanelLayout | null> {
-  return invoke<PanelLayout | null>("get_panel_layout", { mode });
+  return invokeSafe<PanelLayout | null>("get_panel_layout", { mode });
 }
 
 export function setPanelLayout(mode: PanelLayoutMode, layout: PanelLayout): Promise<void> {
-  return invoke<void>("set_panel_layout", { mode, layout });
+  return invokeSafe<void>("set_panel_layout", { mode, layout });
 }
 
 export function presignObject(
@@ -414,7 +423,7 @@ export function presignObject(
   key: string,
   expiresSecs?: number
 ): Promise<string> {
-  return invoke<string>("presign_object", {
+  return invokeSafe<string>("presign_object", {
     connectionId,
     bucket,
     key,
@@ -427,14 +436,14 @@ export function previewObjectToCache(
   bucket: string,
   key: string
 ): Promise<string> {
-  return invoke<string>("preview_object_to_cache", { connectionId, bucket, key });
+  return invokeSafe<string>("preview_object_to_cache", { connectionId, bucket, key });
 }
 
 export function getBucketIndexStatus(
   connectionId: string,
   bucket: string
 ): Promise<BucketIndexMeta | null> {
-  return invoke<BucketIndexMeta | null>("get_bucket_index_status", { connectionId, bucket });
+  return invokeSafe<BucketIndexMeta | null>("get_bucket_index_status", { connectionId, bucket });
 }
 
 export function startBucketIndex(
@@ -442,19 +451,19 @@ export function startBucketIndex(
   bucket: string,
   rebuild = true
 ): Promise<string> {
-  return invoke<string>("start_bucket_index", { connectionId, bucket, rebuild });
+  return invokeSafe<string>("start_bucket_index", { connectionId, bucket, rebuild });
 }
 
 export function pauseBucketIndex(connectionId: string, bucket: string): Promise<void> {
-  return invoke<void>("pause_bucket_index", { connectionId, bucket });
+  return invokeSafe<void>("pause_bucket_index", { connectionId, bucket });
 }
 
 export function resumeBucketIndex(connectionId: string, bucket: string): Promise<void> {
-  return invoke<void>("resume_bucket_index", { connectionId, bucket });
+  return invokeSafe<void>("resume_bucket_index", { connectionId, bucket });
 }
 
 export function cancelBucketIndex(connectionId: string, bucket: string): Promise<void> {
-  return invoke<void>("cancel_bucket_index", { connectionId, bucket });
+  return invokeSafe<void>("cancel_bucket_index", { connectionId, bucket });
 }
 
 export function searchBucketIndex(
@@ -464,7 +473,7 @@ export function searchBucketIndex(
   limit?: number,
   offset?: number
 ): Promise<IndexedObject[]> {
-  return invoke<IndexedObject[]>("search_bucket_index", {
+  return invokeSafe<IndexedObject[]>("search_bucket_index", {
     connectionId,
     bucket,
     query,
@@ -478,7 +487,7 @@ export function exportBucketIndexCsv(
   bucket: string,
   savePath?: string
 ): Promise<string> {
-  return invoke<string>("export_bucket_index_csv", {
+  return invokeSafe<string>("export_bucket_index_csv", {
     connectionId,
     bucket,
     savePath: savePath ?? null,
@@ -486,5 +495,9 @@ export function exportBucketIndexCsv(
 }
 
 export function checkForUpdate(): Promise<UpdateInfo> {
-  return invoke<UpdateInfo>("check_for_update");
+  return invokeSafe<UpdateInfo>("check_for_update");
+}
+
+export function openPreviewFile(path: string): Promise<void> {
+  return invokeSafe<void>("open_preview_file", { path });
 }

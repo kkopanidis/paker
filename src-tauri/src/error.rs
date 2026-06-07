@@ -18,6 +18,12 @@ pub enum PakerError {
     InvalidInput(String),
     #[error("Invalid endpoint URL — use http:// or https://")]
     InvalidEndpoint,
+    #[error("Path is not allowed")]
+    PathNotAllowed,
+    #[error("Bucket index is not ready")]
+    IndexNotReady,
+    #[error("Transfer not found")]
+    TransferNotFound,
     #[error("An internal error occurred")]
     Internal,
 }
@@ -40,6 +46,9 @@ impl PakerError {
             Self::Network => "network",
             Self::InvalidInput(_) => "invalidInput",
             Self::InvalidEndpoint => "invalidEndpoint",
+            Self::PathNotAllowed => "pathNotAllowed",
+            Self::IndexNotReady => "indexNotReady",
+            Self::TransferNotFound => "transferNotFound",
             Self::Internal => "internal",
         }
     }
@@ -60,6 +69,13 @@ impl PakerError {
             Self::InvalidEndpoint => {
                 Some("Enter a full http:// or https:// URL for the S3-compatible endpoint.")
             }
+            Self::PathNotAllowed => {
+                Some("Choose a file or folder from your home directory or use the file picker.")
+            }
+            Self::IndexNotReady => {
+                Some("Wait for indexing to finish or start a new index for this bucket.")
+            }
+            Self::TransferNotFound => None,
             Self::Internal => Some("Try again. If the problem persists, restart the app."),
         }
     }
@@ -139,5 +155,11 @@ pub fn into_ipc_error(err: impl Into<anyhow::Error>) -> PakerError {
     if let Some(pe) = err.downcast_ref::<PakerError>() {
         return pe.clone();
     }
+    tracing::debug!(error = %err, "mapping internal error to IPC");
     PakerError::Internal
+}
+
+/// Clamp presigned URL expiry to 60 seconds .. 7 days.
+pub fn clamp_presign_expiry_secs(expires_secs: u64) -> u64 {
+    expires_secs.clamp(60, 604_800)
 }

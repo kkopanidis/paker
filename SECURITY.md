@@ -29,6 +29,9 @@ Reports we treat as security-relevant for Paker include:
 - **Credential storage** — encryption of `secrets.enc`, OS keychain integration, key derivation in portable mode, or leakage of connection secrets through logs, IPC, or the UI
 - **Portable mode** — unsafe handling of the portable data directory, predictable encryption keys, or path traversal when reading/writing portable data
 - **S3 operations** — bugs in the app that cause unauthorized access, data exposure, or integrity failures beyond what the user's cloud credentials already allow (e.g. sending secrets to unintended endpoints, failing to validate TLS when configured)
+- **Local filesystem IPC** — bypass of `LocalFsScope` via upload, download, export, or preview-open commands (reading or writing paths outside allowed directories)
+- **File permissions** — sensitive files (`secrets.enc`, `connections.json`, `ui_state.json`) world-readable on Unix when the app should restrict access to the owner. On Unix, Paker writes these with mode `0o600` (owner read/write only). On Windows, portable `./data/` files rely on NTFS ACLs inherited from the parent directory; the app does not set a Unix-style permission mask.
+- **Portable KDF** — `secrets.enc` encrypted with only the legacy static KDF (v1) can be decrypted offline by anyone with the file. When a per-host keyring seed is present, portable mode uses KDF v2 (Argon2id over keyring seed + static material); in that case `secrets.enc` alone is **not** sufficient to recover credentials without the seed stored in the OS keychain on the same machine.
 
 ## Out of scope
 

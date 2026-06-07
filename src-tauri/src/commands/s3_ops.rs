@@ -1,4 +1,5 @@
-use crate::error::{into_ipc_error, PakerError};
+use crate::commands::local_fs::LocalFsScope;
+use crate::error::{clamp_presign_expiry_secs, into_ipc_error, PakerError};
 use crate::s3::build_client_for_id;
 use crate::s3::operations::{
     calculate_prefix_size as s3_calculate_prefix_size,
@@ -248,11 +249,16 @@ pub async fn list_objects(
 }
 
 #[tauri::command]
-pub async fn pick_upload_files() -> Result<Vec<String>, PakerError> {
-    Ok(rfd::FileDialog::new()
+pub async fn pick_upload_files(app: AppHandle) -> Result<Vec<String>, PakerError> {
+    let picked: Vec<PathBuf> = rfd::FileDialog::new()
         .set_title("Select files to upload")
         .pick_files()
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    let scope = app.state::<LocalFsScope>();
+    scope.register_file_paths(&picked);
+
+    Ok(picked
         .into_iter()
         .map(|path| path.to_string_lossy().into_owned())
         .collect())
@@ -266,19 +272,23 @@ pub async fn upload_files(
     prefix: String,
     local_paths: Vec<String>,
 ) -> Result<Vec<String>, PakerError> {
-    let paths: Vec<String> = if local_paths.is_empty() {
-        rfd::FileDialog::new()
+    let scope = app.state::<LocalFsScope>();
+    let validated_paths: Vec<PathBuf> = if local_paths.is_empty() {
+        let picked: Vec<PathBuf> = rfd::FileDialog::new()
             .set_title("Select files to upload")
             .pick_files()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|path| path.to_string_lossy().into_owned())
-            .collect()
+            .unwrap_or_default();
+        scope.register_file_paths(&picked);
+        picked
+            .iter()
+            .map(|p| scope.validate_file_access(p.as_path()))
+            .collect::<Result<Vec<_>, _>>()?
     } else {
-        local_paths
+        let path_bufs: Vec<PathBuf> = local_paths.into_iter().map(PathBuf::from).collect();
+        scope.prepare_upload_paths(&path_bufs)?
     };
 
-    if paths.is_empty() {
+    if validated_paths.is_empty() {
         return Ok(Vec::new());
     }
 
@@ -287,8 +297,7 @@ pub async fn upload_files(
     let sem = Arc::new(Semaphore::new(max_concurrent(&app)));
     let mut set: JoinSet<Result<String, PakerError>> = JoinSet::new();
 
-    for local_path in paths {
-        let path = PathBuf::from(&local_path);
+    for path in validated_paths {
         let file_name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -347,14 +356,19 @@ pub async fn download_files(
         return Ok(Vec::new());
     }
 
-    let save_dir = match save_dir {
-        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => rfd::FileDialog::new()
-            .set_title("Select download folder")
-            .pick_folder()
-            .ok_or_else(|| {
-                PakerError::InvalidInput("Download cancelled: no folder selected".to_string())
-            })?,
+    let scope = app.state::<LocalFsScope>();
+    let save_dir = match save_dir.filter(|d| !d.is_empty()) {
+        Some(dir) => scope.validate_dir_access(Path::new(&dir))?,
+        None => {
+            let picked = rfd::FileDialog::new()
+                .set_title("Select download folder")
+                .pick_folder()
+                .ok_or_else(|| {
+                    PakerError::InvalidInput("Download cancelled: no folder selected".to_string())
+                })?;
+            scope.register_picked_folder(&picked);
+            scope.validate_dir_access(&picked)?
+        }
     };
 
     let client = build_client_for_id(&app, &connection_id).await?;
@@ -363,8 +377,8 @@ pub async fn download_files(
     let mut set: JoinSet<Result<String, PakerError>> = JoinSet::new();
 
     for key in keys {
-        let dest = local_dest_path(&save_dir, &key).map_err(|err| {
-            PakerError::InvalidInput(err.to_string())
+        let dest = local_dest_path(&save_dir, &key).map_err(|_| {
+            PakerError::InvalidInput("Object key is not a valid local file path".to_string())
         })?;
         let transfer_id = Uuid::new_v4().to_string();
 
@@ -433,7 +447,7 @@ async fn collect_results(
 pub async fn cancel_transfer(
     app: AppHandle,
     transfer_id: String,
-) -> Result<(), String> {
+) -> Result<(), PakerError> {
     app.state::<TransferManager>().cancel(&transfer_id);
     Ok(())
 }
@@ -442,7 +456,7 @@ pub async fn cancel_transfer(
 pub async fn pause_transfer(
     app: AppHandle,
     transfer_id: String,
-) -> Result<(), String> {
+) -> Result<(), PakerError> {
     app.state::<TransferManager>().pause(&transfer_id);
     Ok(())
 }
@@ -451,7 +465,7 @@ pub async fn pause_transfer(
 pub async fn resume_transfer(
     app: AppHandle,
     transfer_id: String,
-) -> Result<(), String> {
+) -> Result<(), PakerError> {
     app.state::<TransferManager>().resume(&transfer_id);
     Ok(())
 }
@@ -540,7 +554,8 @@ pub async fn presign_object(
     expires_secs: Option<u64>,
 ) -> Result<String, PakerError> {
     let client = build_client_for_id(&app, &connection_id).await?;
-    s3_presign_get_object(&client, &bucket, &key, expires_secs.unwrap_or(3600)).await
+    let expires = clamp_presign_expiry_secs(expires_secs.unwrap_or(3600));
+    s3_presign_get_object(&client, &bucket, &key, expires).await
 }
 
 #[tauri::command]

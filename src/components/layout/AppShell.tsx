@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { Group, Panel, Separator, usePanelRef, type Layout } from "react-resizable-panels";
 import { BookmarkDialog } from "@/components/browser/BookmarkDialog";
 import { Breadcrumb } from "@/components/browser/Breadcrumb";
@@ -44,8 +43,10 @@ import { useTransfers } from "@/hooks/useTransfers";
 import { useUiState } from "@/hooks/useUiState";
 import {
   addBookmark,
+  formatIpcError,
   getConnectionNav,
   headObject,
+  openPreviewFile,
   previewObjectToCache,
   presignObject,
   removeBookmark,
@@ -389,7 +390,7 @@ export function AppShell() {
       await copyToClipboard(url, "Presigned URL copied");
     } catch (error) {
       toast.error("Failed to generate presigned URL", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     } finally {
       setPresignedLoading(false);
@@ -399,10 +400,10 @@ export function AppShell() {
   const handleOpenExternally = async () => {
     if (!previewPath) return;
     try {
-      await openPath(previewPath);
+      await openPreviewFile(previewPath);
     } catch (error) {
       toast.error("Failed to open file", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     }
   };

@@ -1,14 +1,13 @@
+use crate::commands::local_fs::LocalFsScope;
+use crate::error::{into_ipc_error, PakerError};
 use crate::storage::ui_state as state;
 use crate::storage::ui_state::{
     ConnectionNav, FullUiState, PrefixBookmark, UiPreferences,
 };
 use serde::Serialize;
 use std::collections::HashMap;
-use tauri::AppHandle;
-
-fn map_err(err: impl ToString) -> String {
-    err.to_string()
-}
+use std::path::Path;
+use tauri::{AppHandle, Manager};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -29,8 +28,10 @@ pub async fn set_last_local_dir(
     app: AppHandle,
     connection_id: String,
     path: String,
-) -> Result<(), String> {
-    state::set_last_local_dir(&app, &connection_id, &path).map_err(map_err)
+) -> Result<(), PakerError> {
+    app.state::<LocalFsScope>()
+        .validate_dir_access(Path::new(&path))?;
+    state::set_last_local_dir(&app, &connection_id, &path).map_err(into_ipc_error)
 }
 
 #[tauri::command]
@@ -41,8 +42,8 @@ pub async fn get_transfer_settings(app: AppHandle) -> TransferSettings {
 }
 
 #[tauri::command]
-pub async fn get_full_ui_state(app: AppHandle) -> Result<FullUiState, String> {
-    state::get_full_ui_state(&app).map_err(map_err)
+pub async fn get_full_ui_state(app: AppHandle) -> Result<FullUiState, PakerError> {
+    state::get_full_ui_state(&app).map_err(into_ipc_error)
 }
 
 #[tauri::command]
@@ -58,8 +59,8 @@ pub async fn set_connection_nav(
     app: AppHandle,
     connection_id: String,
     nav: ConnectionNav,
-) -> Result<(), String> {
-    state::set_connection_nav(&app, &connection_id, nav).map_err(map_err)
+) -> Result<(), PakerError> {
+    state::set_connection_nav(&app, &connection_id, nav).map_err(into_ipc_error)
 }
 
 #[tauri::command]
@@ -75,8 +76,8 @@ pub async fn add_bookmark(
     app: AppHandle,
     connection_id: String,
     bookmark: PrefixBookmark,
-) -> Result<(), String> {
-    state::add_bookmark(&app, &connection_id, bookmark).map_err(map_err)
+) -> Result<(), PakerError> {
+    state::add_bookmark(&app, &connection_id, bookmark).map_err(into_ipc_error)
 }
 
 #[tauri::command]
@@ -84,8 +85,8 @@ pub async fn remove_bookmark(
     app: AppHandle,
     connection_id: String,
     bookmark_id: String,
-) -> Result<(), String> {
-    state::remove_bookmark(&app, &connection_id, &bookmark_id).map_err(map_err)
+) -> Result<(), PakerError> {
+    state::remove_bookmark(&app, &connection_id, &bookmark_id).map_err(into_ipc_error)
 }
 
 #[tauri::command]
@@ -97,16 +98,16 @@ pub async fn get_ui_preferences(app: AppHandle) -> UiPreferences {
 pub async fn set_ui_preferences(
     app: AppHandle,
     preferences: UiPreferences,
-) -> Result<(), String> {
-    state::set_ui_preferences(&app, preferences).map_err(map_err)
+) -> Result<(), PakerError> {
+    state::set_ui_preferences(&app, preferences).map_err(into_ipc_error)
 }
 
 #[tauri::command]
 pub async fn get_panel_layout(
     app: AppHandle,
     mode: String,
-) -> Result<Option<HashMap<String, f64>>, String> {
-    state::get_panel_layout(&app, &mode).map_err(map_err)
+) -> Result<Option<HashMap<String, f64>>, PakerError> {
+    state::get_panel_layout(&app, &mode).map_err(into_ipc_error)
 }
 
 #[tauri::command]
@@ -114,6 +115,6 @@ pub async fn set_panel_layout(
     app: AppHandle,
     mode: String,
     layout: HashMap<String, f64>,
-) -> Result<(), String> {
-    state::set_panel_layout(&app, &mode, layout).map_err(map_err)
+) -> Result<(), PakerError> {
+    state::set_panel_layout(&app, &mode, layout).map_err(into_ipc_error)
 }

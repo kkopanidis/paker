@@ -2,20 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   deleteConnection as deleteConnectionApi,
+  formatIpcError,
   listConnections,
-  parseStructuredError,
   saveConnection,
   testConnection,
-  type PakerIpcError,
 } from "@/lib/tauri";
 import type { S3Connection, S3ConnectionInput } from "@/types/connection";
-
-function formatIpcError(error: unknown): string {
-  const parsed: PakerIpcError = parseStructuredError(error);
-  return parsed.userAction
-    ? `${parsed.message} ${parsed.userAction}`
-    : parsed.message;
-}
 
 export function useConnections() {
   const [connections, setConnections] = useState<S3Connection[]>([]);
@@ -34,7 +26,7 @@ export function useConnections() {
       });
     } catch (error) {
       toast.error("Failed to load connections", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     } finally {
       setLoading(false);

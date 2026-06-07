@@ -11,12 +11,48 @@ const packageJsonPath = join(root, "package.json");
 const packageLockPath = join(root, "package-lock.json");
 const cargoTomlPath = join(root, "src-tauri", "Cargo.toml");
 
+const checkOnly = process.argv.includes("--check");
+
 const tauriConf = JSON.parse(readFileSync(tauriConfPath, "utf8"));
 const version = tauriConf.version;
 
 if (!version || typeof version !== "string") {
   console.error("Could not read version from src-tauri/tauri.conf.json");
   process.exit(1);
+}
+
+if (checkOnly) {
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  const packageLock = JSON.parse(readFileSync(packageLockPath, "utf8"));
+  const cargoToml = readFileSync(cargoTomlPath, "utf8");
+  const cargoMatch = cargoToml.match(/^version = "(.*)"$/m);
+  const cargoVersion = cargoMatch?.[1];
+
+  const mismatches = [];
+  if (packageJson.version !== version) {
+    mismatches.push(`package.json (${packageJson.version})`);
+  }
+  if (packageLock.version !== version) {
+    mismatches.push(`package-lock.json (${packageLock.version})`);
+  }
+  if (packageLock.packages?.[""]?.version !== version) {
+    mismatches.push(`package-lock.json root package (${packageLock.packages?.[""]?.version})`);
+  }
+  if (cargoVersion !== version) {
+    mismatches.push(`Cargo.toml (${cargoVersion})`);
+  }
+
+  if (mismatches.length > 0) {
+    console.error(`Version mismatch: canonical is ${version} in tauri.conf.json`);
+    for (const item of mismatches) {
+      console.error(`  - ${item}`);
+    }
+    console.error("Run: npm run version:sync");
+    process.exit(1);
+  }
+
+  console.log(`Version check passed (${version})`);
+  process.exit(0);
 }
 
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));

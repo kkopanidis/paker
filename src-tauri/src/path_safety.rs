@@ -25,6 +25,50 @@ pub fn local_dest_path(save_dir: &Path, key: &str) -> Result<PathBuf> {
     sanitize_object_key_for_local_path(save_dir, key)
 }
 
+/// Validate an S3 key segment used for create/rename/join operations.
+pub fn validate_s3_key_segment(segment: &str) -> Result<()> {
+    let segment = segment.trim();
+    if segment.is_empty() {
+        return Err(anyhow!("name is empty"));
+    }
+    if segment.contains("..") {
+        return Err(anyhow!("name must not contain '..'"));
+    }
+    if segment.starts_with('/') || segment.starts_with('\\') {
+        return Err(anyhow!("name must be relative"));
+    }
+    if segment.contains('\0') || segment.chars().any(|c| c.is_control()) {
+        return Err(anyhow!("name contains invalid characters"));
+    }
+    if has_windows_drive_prefix(segment) {
+        return Err(anyhow!("name must not contain a Windows drive prefix"));
+    }
+    Ok(())
+}
+
+/// Validate a full S3 object key for mutations.
+pub fn validate_s3_object_key(key: &str) -> Result<()> {
+    if key.is_empty() {
+        return Err(anyhow!("object key is empty"));
+    }
+    if key.starts_with('/') || key.starts_with('\\') {
+        return Err(anyhow!("object key must be relative"));
+    }
+    if key.contains('\0') || key.chars().any(|c| c.is_control()) {
+        return Err(anyhow!("object key contains invalid characters"));
+    }
+    let normalized = key.replace('\\', "/");
+    for part in normalized.split('/') {
+        if part == ".." {
+            return Err(anyhow!("object key must not contain '..'"));
+        }
+        if !part.is_empty() {
+            validate_s3_key_segment(part)?;
+        }
+    }
+    Ok(())
+}
+
 fn has_windows_drive_prefix(key: &str) -> bool {
     let mut chars = key.chars();
     let Some(first) = chars.next() else {
@@ -194,6 +238,13 @@ mod tests {
         let dir = test_save_dir("empty");
         let err = sanitize_object_key_for_local_path(&dir, "").expect_err("empty");
         assert!(err.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn rejects_invalid_s3_key_segment() {
+        assert!(validate_s3_key_segment("..").is_err());
+        assert!(validate_s3_key_segment("").is_err());
+        assert!(validate_s3_object_key("foo/../bar").is_err());
     }
 
     #[test]

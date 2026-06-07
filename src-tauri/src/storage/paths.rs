@@ -84,3 +84,43 @@ pub fn ensure_parent(path: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+/// Write a file with owner-only permissions on Unix (0o600).
+pub fn write_private_file(path: &Path, data: &[u8]) -> Result<()> {
+    fs::write(path, data).with_context(|| format!("failed to write {}", path.display()))?;
+    set_private_file_permissions(path)?;
+    Ok(())
+}
+
+pub fn set_private_file_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = fs::Permissions::from_mode(0o600);
+        fs::set_permissions(path, perms)
+            .with_context(|| format!("failed to set permissions on {}", path.display()))?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn write_private_file_sets_owner_only_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("secret.txt");
+        write_private_file(&path, b"test data").expect("write_private_file");
+
+        let mode = fs::metadata(&path)
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+}

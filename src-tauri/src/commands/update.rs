@@ -128,7 +128,7 @@ fn write_cache(app: &AppHandle, info: &UpdateInfo) -> Result<()> {
     };
     let contents =
         serde_json::to_string_pretty(&cache).context("failed to serialize update check cache")?;
-    fs::write(&path, contents).with_context(|| format!("failed to write {}", path.display()))
+    paths::write_private_file(&path, contents.as_bytes())
 }
 
 fn fetch_latest_release() -> Result<GitHubRelease> {

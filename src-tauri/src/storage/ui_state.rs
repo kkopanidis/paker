@@ -97,7 +97,7 @@ fn write_state(app: &AppHandle, state: &UiState) -> Result<()> {
     let path = paths::ui_state_path(app)?;
     paths::ensure_parent(&path)?;
     let contents = serde_json::to_string_pretty(state).context("failed to serialize ui state")?;
-    fs::write(&path, contents).with_context(|| format!("failed to write {}", path.display()))
+    paths::write_private_file(&path, contents.as_bytes())
 }
 
 impl From<UiState> for FullUiState {
@@ -138,13 +138,6 @@ pub fn get_max_concurrent_transfers(app: &AppHandle) -> u32 {
     read_state(app)
         .map(|s| s.max_concurrent_transfers)
         .unwrap_or(3)
-}
-
-#[allow(dead_code)]
-pub fn set_max_concurrent_transfers(app: &AppHandle, value: u32) -> Result<()> {
-    let mut state = read_state(app)?;
-    state.max_concurrent_transfers = value;
-    write_state(app, &state)
 }
 
 pub fn get_connection_nav(app: &AppHandle, connection_id: &str) -> Option<ConnectionNav> {
