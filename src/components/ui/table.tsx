@@ -1,12 +1,20 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
-  ({ className, ...props }, ref) => (
-    <div className="relative w-full overflow-auto">
+interface TableProps extends React.HTMLAttributes<HTMLTableElement> {
+  wrapScroll?: boolean;
+}
+
+const Table = React.forwardRef<HTMLTableElement, TableProps>(
+  ({ className, wrapScroll = true, ...props }, ref) => {
+    const table = (
       <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
-    </div>
-  )
+    );
+    if (!wrapScroll) {
+      return table;
+    }
+    return <div className="relative w-full overflow-auto">{table}</div>;
+  }
 );
 Table.displayName = "Table";
 
@@ -31,7 +39,7 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
     <tr
       ref={ref}
       className={cn(
-        "border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted",
+        "border-b transition-colors hover:bg-muted/50 data-[state=focused]:bg-accent/40 data-[state=selected]:bg-muted",
         className
       )}
       {...props}

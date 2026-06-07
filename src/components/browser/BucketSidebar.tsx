@@ -8,6 +8,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { CollapsiblePanelHeader } from "@/components/layout/CollapsiblePanelHeader";
 import type { BucketInfo } from "@/types/s3";
 
 interface BucketSidebarProps {
@@ -15,6 +16,8 @@ interface BucketSidebarProps {
   selectedBucket: string | null;
   loading: boolean;
   disabled?: boolean;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
   onSelect: (bucket: string) => void;
   onRefresh?: () => void;
 }
@@ -24,15 +27,20 @@ export function BucketSidebar({
   selectedBucket,
   loading,
   disabled,
+  collapsed = false,
+  onToggleCollapse,
   onSelect,
   onRefresh,
 }: BucketSidebarProps) {
   return (
     <div className="flex h-full flex-col border-r bg-card">
-      <div className="border-b px-3 py-2">
-        <h2 className="text-sm font-semibold">Buckets</h2>
-      </div>
+      <CollapsiblePanelHeader
+        title="Buckets"
+        collapsed={collapsed}
+        onToggleCollapse={() => onToggleCollapse?.()}
+      />
 
+      {!collapsed && (
       <ScrollArea className="flex-1">
         <div className="space-y-1 p-2">
           {loading &&
@@ -86,6 +94,7 @@ export function BucketSidebar({
           )}
         </div>
       </ScrollArea>
+      )}
     </div>
   );
 }

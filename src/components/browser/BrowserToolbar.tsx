@@ -2,9 +2,13 @@ import {
   CopyPlus,
   Download,
   FolderPlus,
+  Info,
   MoveRight,
   Pencil,
   RefreshCw,
+  Database,
+  Ruler,
+  Search,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -25,6 +29,11 @@ interface BrowserToolbarProps {
   onRefresh: () => void;
   onCopyTo?: () => void;
   onMoveTo?: () => void;
+  onProperties?: () => void;
+  onCalculateBucketSize?: () => void;
+  onIndexBucket?: () => void;
+  onSearchIndex?: () => void;
+  indexSearchEnabled?: boolean;
 }
 
 function ToolbarButton({
@@ -63,6 +72,11 @@ export function BrowserToolbar({
   onRefresh,
   onCopyTo,
   onMoveTo,
+  onProperties,
+  onCalculateBucketSize,
+  onIndexBucket,
+  onSearchIndex,
+  indexSearchEnabled,
 }: BrowserToolbarProps) {
   return (
     <TooltipProvider>
@@ -125,6 +139,43 @@ export function BrowserToolbar({
           onClick={onRefresh}
           disabled={disabled}
         />
+        {(onProperties || onCalculateBucketSize) && (
+          <>
+            <Separator orientation="vertical" className="mx-1 h-6" />
+            {onProperties && (
+              <ToolbarButton
+                label="Bucket properties"
+                icon={<Info className="h-4 w-4" />}
+                onClick={onProperties}
+                disabled={disabled}
+              />
+            )}
+            {onCalculateBucketSize && (
+              <ToolbarButton
+                label="Calculate bucket size"
+                icon={<Ruler className="h-4 w-4" />}
+                onClick={onCalculateBucketSize}
+                disabled={disabled || busy}
+              />
+            )}
+            {onIndexBucket && (
+              <ToolbarButton
+                label="Index bucket"
+                icon={<Database className="h-4 w-4" />}
+                onClick={onIndexBucket}
+                disabled={disabled}
+              />
+            )}
+            {onSearchIndex && (
+              <ToolbarButton
+                label="Search bucket index"
+                icon={<Search className="h-4 w-4" />}
+                onClick={onSearchIndex}
+                disabled={disabled || !indexSearchEnabled}
+              />
+            )}
+          </>
+        )}
       </div>
     </TooltipProvider>
   );

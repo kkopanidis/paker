@@ -18,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { S3Connection, S3ConnectionInput } from "@/types/connection";
+import { CollapsiblePanelHeader } from "@/components/layout/CollapsiblePanelHeader";
 import { ConnectionForm } from "./ConnectionForm";
 
 interface ConnectionListProps {
@@ -25,6 +26,8 @@ interface ConnectionListProps {
   selectedId: string | null;
   loading: boolean;
   testingId: string | null;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
   onSelect: (id: string) => void;
   onSave: (input: S3ConnectionInput, id?: string) => Promise<unknown>;
   onDelete: (id: string) => Promise<unknown>;
@@ -36,6 +39,8 @@ export function ConnectionList({
   selectedId,
   loading,
   testingId,
+  collapsed = false,
+  onToggleCollapse,
   onSelect,
   onSave,
   onDelete,
@@ -56,13 +61,20 @@ export function ConnectionList({
 
   return (
     <div className="flex h-full flex-col border-r bg-card">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <h2 className="text-sm font-semibold">Connections</h2>
-        <Button variant="ghost" size="icon" onClick={openCreate} aria-label="Add connection">
-          <Plus className="h-4 w-4" />
-        </Button>
-      </div>
+      <CollapsiblePanelHeader
+        title="Connections"
+        collapsed={collapsed}
+        onToggleCollapse={() => onToggleCollapse?.()}
+        actions={
+          !collapsed ? (
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={openCreate} aria-label="Add connection">
+              <Plus className="h-4 w-4" />
+            </Button>
+          ) : undefined
+        }
+      />
 
+      {!collapsed && (
       <ScrollArea className="flex-1">
         <div className="space-y-1 p-2">
           {loading &&
@@ -163,6 +175,7 @@ export function ConnectionList({
           })}
         </div>
       </ScrollArea>
+      )}
 
       <ConnectionForm
         open={formOpen}

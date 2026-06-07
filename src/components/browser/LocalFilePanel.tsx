@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -86,6 +86,47 @@ function LocalTable({
   onDragOver,
 }: LocalTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "name", desc: false }]);
+  const [contextTarget, setContextTarget] = useState<LocalEntry | null>(null);
+
+  const handleRowActivate = useCallback(
+    (entry: LocalEntry, event: React.MouseEvent) => {
+      if (event.detail === 2 && entry.isDir) {
+        event.preventDefault();
+        onNavigateInto(entry);
+        return;
+      }
+      if (event.detail === 1) {
+        onTogglePath(entry.path, !selectedPaths.has(entry.path));
+      }
+    },
+    [onNavigateInto, onTogglePath, selectedPaths]
+  );
+
+  const handleCheckboxCellPointer = useCallback(
+    (entry: LocalEntry, event: React.MouseEvent) => {
+      if (event.detail === 1) {
+        event.stopPropagation();
+        return;
+      }
+      event.stopPropagation();
+      if (entry.isDir) {
+        event.preventDefault();
+        onNavigateInto(entry);
+      }
+    },
+    [onNavigateInto]
+  );
+
+  const handleRowContextMenu = useCallback((entry: LocalEntry) => {
+    setContextTarget(entry);
+  }, []);
+
+  const handleAreaContextMenu = useCallback((event: React.MouseEvent) => {
+    const row = (event.target as HTMLElement).closest("tr[data-file-row]");
+    if (!row) {
+      setContextTarget(null);
+    }
+  }, []);
 
   const columns = useMemo<ColumnDef<LocalEntry>[]>(
     () => [
@@ -101,15 +142,22 @@ function LocalTable({
             aria-label="Select all"
           />
         ),
-        cell: ({ row }) => (
-          <div onClick={(e) => e.stopPropagation()}>
-            <Checkbox
-              checked={selectedPaths.has(row.original.path)}
-              onCheckedChange={(value) => onTogglePath(row.original.path, !!value)}
-              aria-label={`Select ${row.original.name}`}
-            />
-          </div>
-        ),
+        cell: ({ row }) => {
+          const entry = row.original;
+          return (
+            <div
+              className="flex h-full min-h-9 items-center"
+              onClick={(event) => handleCheckboxCellPointer(entry, event)}
+              onDoubleClick={(event) => handleCheckboxCellPointer(entry, event)}
+            >
+              <Checkbox
+                checked={selectedPaths.has(entry.path)}
+                onCheckedChange={(value) => onTogglePath(entry.path, !!value)}
+                aria-label={`Select ${entry.name}`}
+              />
+            </div>
+          );
+        },
         enableSorting: false,
         size: 40,
       },
@@ -142,7 +190,7 @@ function LocalTable({
         cell: ({ row }) => formatDate(row.original.modified),
       },
     ],
-    [onToggleAll, onTogglePath, selectedPaths]
+    [handleCheckboxCellPointer, onToggleAll, onTogglePath, selectedPaths]
   );
 
   const table = useReactTable({
@@ -154,8 +202,8 @@ function LocalTable({
     getSortedRowModel: getSortedRowModel(),
   });
 
-  const areaContextContent = (
-    <ContextMenuContent>
+  const areaContextMenuItems = (
+    <>
       <ContextMenuItem onSelect={() => onContextGoUp?.()}>
         <ArrowUp className="h-4 w-4" />
         Go up
@@ -173,7 +221,7 @@ function LocalTable({
           </ContextMenuItem>
         </>
       ) : null}
-    </ContextMenuContent>
+    </>
   );
 
   if (loading) {
@@ -198,16 +246,51 @@ function LocalTable({
             This folder is empty.
           </div>
         </ContextMenuTrigger>
-        {areaContextContent}
+        <ContextMenuContent>{areaContextMenuItems}</ContextMenuContent>
       </ContextMenu>
     );
   }
 
+  const rowContextMenu = contextTarget ? (
+    <>
+      {contextTarget.isDir ? (
+        <ContextMenuItem onSelect={() => onContextOpenFolder?.(contextTarget)}>
+          <FolderOpen className="h-4 w-4" />
+          Open folder
+        </ContextMenuItem>
+      ) : null}
+      <ContextMenuItem onSelect={() => onContextGoUp?.()}>
+        <ArrowUp className="h-4 w-4" />
+        Go up
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => onContextPickFolder?.()}>
+        <FolderSearch className="h-4 w-4" />
+        Pick folder
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => onContextRefresh?.()}>
+        <RefreshCw className="h-4 w-4" />
+        Refresh
+      </ContextMenuItem>
+    </>
+  ) : (
+    areaContextMenuItems
+  );
+
   return (
-    <ContextMenu>
+    <ContextMenu
+      onOpenChange={(open) => {
+        if (!open) setContextTarget(null);
+      }}
+    >
       <ContextMenuTrigger asChild>
-        <div className="min-h-full" onDragOver={onDragOver} onDrop={onDrop}>
-          <Table>
+        <div
+          className="min-h-full"
+          onContextMenu={handleAreaContextMenu}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+        >
+          <Table wrapScroll={false}>
             <TableHeader className="sticky top-0 z-10 bg-background">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -232,56 +315,28 @@ function LocalTable({
             </TableHeader>
             <TableBody>
               {table.getRowModel().rows.map((row) => (
-                <ContextMenu key={row.id}>
-                  <ContextMenuTrigger asChild>
-                    <TableRow
-                      data-state={selectedPaths.has(row.original.path) ? "selected" : undefined}
-                      className="cursor-pointer"
-                      draggable
-                      onDragStart={(e) => onDragStart?.(e, row.original)}
-                      onClick={() => {
-                        const path = row.original.path;
-                        onTogglePath(path, !selectedPaths.has(path));
-                      }}
-                      onDoubleClick={() => {
-                        if (row.original.isDir) onNavigateInto(row.original);
-                      }}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </ContextMenuTrigger>
-                  <ContextMenuContent>
-                    {row.original.isDir ? (
-                      <ContextMenuItem onSelect={() => onContextOpenFolder?.(row.original)}>
-                        <FolderOpen className="h-4 w-4" />
-                        Open folder
-                      </ContextMenuItem>
-                    ) : null}
-                    <ContextMenuItem onSelect={() => onContextGoUp?.()}>
-                      <ArrowUp className="h-4 w-4" />
-                      Go up
-                    </ContextMenuItem>
-                    <ContextMenuItem onSelect={() => onContextPickFolder?.()}>
-                      <FolderSearch className="h-4 w-4" />
-                      Pick folder
-                    </ContextMenuItem>
-                    <ContextMenuSeparator />
-                    <ContextMenuItem onSelect={() => onContextRefresh?.()}>
-                      <RefreshCw className="h-4 w-4" />
-                      Refresh
-                    </ContextMenuItem>
-                  </ContextMenuContent>
-                </ContextMenu>
+                <TableRow
+                  key={row.id}
+                  data-file-row
+                  data-state={selectedPaths.has(row.original.path) ? "selected" : undefined}
+                  className="h-9 min-h-9 cursor-pointer"
+                  draggable
+                  onDragStart={(e) => onDragStart?.(e, row.original)}
+                  onClick={(event) => handleRowActivate(row.original, event)}
+                  onContextMenu={() => handleRowContextMenu(row.original)}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       </ContextMenuTrigger>
-      {areaContextContent}
+      <ContextMenuContent>{rowContextMenu}</ContextMenuContent>
     </ContextMenu>
   );
 }

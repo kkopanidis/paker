@@ -60,6 +60,19 @@ pub fn ui_state_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("ui_state.json"))
 }
 
+pub fn index_db_path(app: &AppHandle) -> Result<PathBuf> {
+    let path = data_dir(app)?.join("index").join("index.db");
+    ensure_parent(&path)?;
+    Ok(path)
+}
+
+pub fn preview_cache_dir(app: &AppHandle) -> Result<PathBuf> {
+    let dir = data_dir(app)?.join("preview-cache");
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create preview cache directory {}", dir.display()))?;
+    Ok(dir)
+}
+
 pub fn ensure_parent(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)

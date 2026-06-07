@@ -1,7 +1,27 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { S3Connection, S3ConnectionInput } from "@/types/connection";
-import type { BucketInfo, CopyMoveItem, ListObjectsResult, ObjectHeadDetails, S3Object } from "@/types/s3";
+import type {
+  BucketIndexMeta,
+  BucketInfo,
+  BucketMetadata,
+  CachedListResult,
+  CopyMoveItem,
+  IndexedObject,
+  ListObjectsResponse,
+  ObjectHeadResponse,
+  ListObjectsResult,
+  PrefixSizeResult,
+  S3Object,
+} from "@/types/s3";
 import type { LocalEntry, TransferSettings } from "@/types/local";
+import type {
+  ConnectionNav,
+  FullUiState,
+  PanelLayout,
+  PanelLayoutMode,
+  PrefixBookmark,
+  UiPreferences,
+} from "@/types/ui";
 
 export interface SaveConnectionPayload extends S3ConnectionInput {
   id?: string;
@@ -49,17 +69,31 @@ export function verifyBucket(connectionId: string, bucket: string): Promise<void
   return invoke<void>("verify_bucket", { connectionId, bucket: bucket.trim() });
 }
 
+export function readListCache(
+  connectionId: string,
+  bucket: string,
+  prefix?: string
+): Promise<CachedListResult | null> {
+  return invoke<CachedListResult | null>("read_list_cache", {
+    connectionId,
+    bucket,
+    prefix: prefix ?? null,
+  });
+}
+
 export function listObjects(
   connectionId: string,
   bucket: string,
   prefix?: string,
-  continuationToken?: string
-): Promise<ListObjectsResult> {
-  return invoke<ListObjectsResult>("list_objects", {
+  continuationToken?: string,
+  forceRefresh?: boolean
+): Promise<ListObjectsResponse> {
+  return invoke<ListObjectsResponse>("list_objects", {
     connectionId,
     bucket,
     prefix: prefix ?? null,
     continuationToken: continuationToken ?? null,
+    forceRefresh: forceRefresh ?? false,
   });
 }
 
@@ -94,9 +128,15 @@ export function normalizeObjects(result: ListObjectsResult, prefix: string): S3O
 export function headObject(
   connectionId: string,
   bucket: string,
-  key: string
-): Promise<ObjectHeadDetails> {
-  return invoke<ObjectHeadDetails>("head_object", { connectionId, bucket, key });
+  key: string,
+  forceRefresh?: boolean
+): Promise<ObjectHeadResponse> {
+  return invoke<ObjectHeadResponse>("head_object", {
+    connectionId,
+    bucket,
+    key,
+    forceRefresh: forceRefresh ?? false,
+  });
 }
 
 export function checkObjectsExist(
@@ -240,4 +280,142 @@ export function setLastLocalDir(connectionId: string, path: string): Promise<voi
 
 export function getTransferSettings(): Promise<TransferSettings> {
   return invoke<TransferSettings>("get_transfer_settings");
+}
+
+export function calculatePrefixSize(
+  connectionId: string,
+  bucket: string,
+  prefix?: string,
+  forceRefresh?: boolean
+): Promise<PrefixSizeResult> {
+  return invoke<PrefixSizeResult>("calculate_prefix_size", {
+    connectionId,
+    bucket,
+    prefix: prefix ?? null,
+    forceRefresh: forceRefresh ?? false,
+  });
+}
+
+export function getBucketMetadata(
+  connectionId: string,
+  bucket: string
+): Promise<BucketMetadata> {
+  return invoke<BucketMetadata>("get_bucket_metadata", { connectionId, bucket });
+}
+
+export function getFullUiState(): Promise<FullUiState> {
+  return invoke<FullUiState>("get_full_ui_state");
+}
+
+export function getConnectionNav(connectionId: string): Promise<ConnectionNav | null> {
+  return invoke<ConnectionNav | null>("get_connection_nav", { connectionId });
+}
+
+export function setConnectionNav(connectionId: string, nav: ConnectionNav): Promise<void> {
+  return invoke<void>("set_connection_nav", { connectionId, nav });
+}
+
+export function getBookmarks(connectionId: string): Promise<PrefixBookmark[]> {
+  return invoke<PrefixBookmark[]>("get_bookmarks", { connectionId });
+}
+
+export function addBookmark(connectionId: string, bookmark: PrefixBookmark): Promise<void> {
+  return invoke<void>("add_bookmark", { connectionId, bookmark });
+}
+
+export function removeBookmark(connectionId: string, bookmarkId: string): Promise<void> {
+  return invoke<void>("remove_bookmark", { connectionId, bookmarkId });
+}
+
+export function getUiPreferences(): Promise<UiPreferences> {
+  return invoke<UiPreferences>("get_ui_preferences");
+}
+
+export function setUiPreferences(preferences: UiPreferences): Promise<void> {
+  return invoke<void>("set_ui_preferences", { preferences });
+}
+
+export function getPanelLayout(mode: PanelLayoutMode): Promise<PanelLayout | null> {
+  return invoke<PanelLayout | null>("get_panel_layout", { mode });
+}
+
+export function setPanelLayout(mode: PanelLayoutMode, layout: PanelLayout): Promise<void> {
+  return invoke<void>("set_panel_layout", { mode, layout });
+}
+
+export function presignObject(
+  connectionId: string,
+  bucket: string,
+  key: string,
+  expiresSecs?: number
+): Promise<string> {
+  return invoke<string>("presign_object", {
+    connectionId,
+    bucket,
+    key,
+    expiresSecs: expiresSecs ?? null,
+  });
+}
+
+export function previewObjectToCache(
+  connectionId: string,
+  bucket: string,
+  key: string
+): Promise<string> {
+  return invoke<string>("preview_object_to_cache", { connectionId, bucket, key });
+}
+
+export function getBucketIndexStatus(
+  connectionId: string,
+  bucket: string
+): Promise<BucketIndexMeta | null> {
+  return invoke<BucketIndexMeta | null>("get_bucket_index_status", { connectionId, bucket });
+}
+
+export function startBucketIndex(
+  connectionId: string,
+  bucket: string,
+  rebuild = true
+): Promise<string> {
+  return invoke<string>("start_bucket_index", { connectionId, bucket, rebuild });
+}
+
+export function pauseBucketIndex(connectionId: string, bucket: string): Promise<void> {
+  return invoke<void>("pause_bucket_index", { connectionId, bucket });
+}
+
+export function resumeBucketIndex(connectionId: string, bucket: string): Promise<void> {
+  return invoke<void>("resume_bucket_index", { connectionId, bucket });
+}
+
+export function cancelBucketIndex(connectionId: string, bucket: string): Promise<void> {
+  return invoke<void>("cancel_bucket_index", { connectionId, bucket });
+}
+
+export function searchBucketIndex(
+  connectionId: string,
+  bucket: string,
+  query: string,
+  limit?: number,
+  offset?: number
+): Promise<IndexedObject[]> {
+  return invoke<IndexedObject[]>("search_bucket_index", {
+    connectionId,
+    bucket,
+    query,
+    limit: limit ?? null,
+    offset: offset ?? null,
+  });
+}
+
+export function exportBucketIndexCsv(
+  connectionId: string,
+  bucket: string,
+  savePath?: string
+): Promise<string> {
+  return invoke<string>("export_bucket_index_csv", {
+    connectionId,
+    bucket,
+    savePath: savePath ?? null,
+  });
 }

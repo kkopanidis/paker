@@ -1,13 +1,19 @@
 use crate::s3::build_client_for_id;
 use crate::s3::operations::{
+    calculate_prefix_size as s3_calculate_prefix_size,
     copy_objects_batch as s3_copy_objects_batch, create_folder as s3_create_folder,
-    delete_objects_batch, get_object_to_path, head_object as s3_head_object, join_prefix,
-    list_buckets as s3_list_buckets, list_objects_v2, local_dest_path,
-    move_objects_batch as s3_move_objects_batch, object_exists, put_object_file,
+    delete_objects_batch, get_bucket_metadata as s3_get_bucket_metadata, get_object_to_path,
+    head_object as s3_head_object, join_prefix, list_buckets as s3_list_buckets, list_objects_v2,
+    local_dest_path, move_objects_batch as s3_move_objects_batch, object_exists,
+    object_info_to_head, presign_get_object as s3_presign_get_object,
+    preview_object_to_cache as s3_preview_object_to_cache, put_object_file,
     rename_object as s3_rename_object, verify_bucket_access, CopyItem,
 };
-use crate::s3::{BucketInfo, ListObjectsResult, ObjectHeadResult};
-use crate::storage;
+use crate::s3::{
+    BucketInfo, BucketMetadata, CachedListResponse, ListObjectsResponse, ObjectHeadResponse,
+    PrefixSizeResult,
+};
+use crate::storage::{self, ObjectCacheManager};
 use crate::transfer::TransferManager;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -18,6 +24,55 @@ use uuid::Uuid;
 
 fn map_err(err: impl ToString) -> String {
     err.to_string()
+}
+
+fn timestamp_now() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string()
+}
+
+fn invalidate_after_mutation(cache: &ObjectCacheManager, conn: &str, bucket: &str, prefix: &str) {
+    let _ = cache.invalidate_prefix(conn, bucket, prefix);
+    let _ = cache.invalidate_parent_if_needed(conn, bucket, prefix);
+    let _ = cache.mark_bucket_index_stale(conn, bucket);
+}
+
+fn parent_prefix_from_key(key: &str) -> String {
+    match key.rfind('/') {
+        None | Some(0) => String::new(),
+        Some(idx) => key[..=idx].to_string(),
+    }
+}
+
+fn prefixes_for_keys(keys: &[String]) -> Vec<String> {
+    let mut prefixes: Vec<String> = keys.iter().map(|k| parent_prefix_from_key(k)).collect();
+    prefixes.sort();
+    prefixes.dedup();
+    prefixes
+}
+
+fn invalidate_for_keys(cache: &ObjectCacheManager, conn: &str, bucket: &str, keys: &[String]) {
+    for prefix in prefixes_for_keys(keys) {
+        invalidate_after_mutation(cache, conn, bucket, &prefix);
+    }
+}
+
+fn seed_head_cache_from_listing(
+    cache: &ObjectCacheManager,
+    connection_id: &str,
+    bucket: &str,
+    listing: &crate::s3::ListObjectsResult,
+) {
+    for obj in &listing.objects {
+        if obj.is_prefix || obj.key.ends_with('/') {
+            continue;
+        }
+        let head = object_info_to_head(obj);
+        let _ = cache.put_head(connection_id, bucket, &obj.key, &head);
+    }
 }
 
 fn max_concurrent(app: &AppHandle) -> usize {
@@ -75,24 +130,139 @@ pub async fn verify_bucket(
 }
 
 #[tauri::command]
+pub async fn calculate_prefix_size(
+    app: AppHandle,
+    connection_id: String,
+    bucket: String,
+    prefix: Option<String>,
+    force_refresh: Option<bool>,
+) -> Result<PrefixSizeResult, String> {
+    let prefix_str = prefix.as_deref().unwrap_or("");
+    let normalized = if prefix_str.is_empty() {
+        String::new()
+    } else if prefix_str.ends_with('/') {
+        prefix_str.to_string()
+    } else {
+        format!("{prefix_str}/")
+    };
+
+    let cache = app.state::<ObjectCacheManager>();
+    if !force_refresh.unwrap_or(false) {
+        if let Some((result, _calculated_at)) =
+            cache.get_prefix_size(&connection_id, &bucket, &normalized)
+        {
+            return Ok(result);
+        }
+    }
+
+    let client = build_client_for_id(&app, &connection_id)
+        .await
+        .map_err(map_err)?;
+    let result =
+        s3_calculate_prefix_size(&app, &client, &bucket, prefix_str).await.map_err(map_err)?;
+    let _ = cache.put_prefix_size(&connection_id, &bucket, &result.prefix, &result);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_bucket_metadata(
+    app: AppHandle,
+    connection_id: String,
+    bucket: String,
+) -> Result<BucketMetadata, String> {
+    let profile = storage::get_connection(&app, &connection_id)
+        .map_err(map_err)?
+        .ok_or_else(|| format!("connection not found: {connection_id}"))?;
+
+    let client = build_client_for_id(&app, &connection_id)
+        .await
+        .map_err(map_err)?;
+
+    let creation_date = s3_list_buckets(&client)
+        .await
+        .ok()
+        .and_then(|buckets| {
+            buckets
+                .into_iter()
+                .find(|b| b.name == bucket)
+                .and_then(|b| b.creation_date)
+        });
+
+    s3_get_bucket_metadata(
+        &client,
+        &bucket,
+        creation_date,
+        Some(profile.name),
+        profile.endpoint,
+        Some(profile.region),
+        Some(profile.force_path_style),
+    )
+    .await
+    .map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn read_list_cache(
+    app: AppHandle,
+    connection_id: String,
+    bucket: String,
+    prefix: Option<String>,
+) -> Result<Option<CachedListResponse>, String> {
+    let cache = app.state::<ObjectCacheManager>();
+    let prefix_str = prefix.as_deref().unwrap_or("");
+    Ok(cache
+        .get_listing(&connection_id, &bucket, prefix_str, "")
+        .map(|(result, fetched_at)| CachedListResponse {
+            result,
+            fetched_at,
+        }))
+}
+
+#[tauri::command]
 pub async fn list_objects(
     app: AppHandle,
     connection_id: String,
     bucket: String,
     prefix: Option<String>,
     continuation_token: Option<String>,
-) -> Result<ListObjectsResult, String> {
+    force_refresh: Option<bool>,
+) -> Result<ListObjectsResponse, String> {
+    let prefix_str = prefix.as_deref().unwrap_or("");
+    let token_str = continuation_token.as_deref().unwrap_or("");
+    let cache = app.state::<ObjectCacheManager>();
+
+    // `read_list_cache` serves stale-while-revalidate; this command always hits S3 so the
+    // UI can show cached data instantly then replace it with a fresh listing.
+    if force_refresh.unwrap_or(false) && token_str.is_empty() {
+        let _ = cache.invalidate_prefix(&connection_id, &bucket, prefix_str);
+    }
+
     let client = build_client_for_id(&app, &connection_id)
         .await
         .map_err(map_err)?;
-    list_objects_v2(
+    let result = list_objects_v2(
         &client,
         &bucket,
         prefix.as_deref(),
         continuation_token.as_deref(),
     )
     .await
-    .map_err(map_err)
+    .map_err(map_err)?;
+
+    let _ = cache.put_listing(
+        &connection_id,
+        &bucket,
+        prefix_str,
+        token_str,
+        &result,
+    );
+    seed_head_cache_from_listing(&cache, &connection_id, &bucket, &result);
+
+    Ok(ListObjectsResponse {
+        result,
+        from_cache: false,
+        fetched_at: Some(timestamp_now()),
+    })
 }
 
 #[tauri::command]
@@ -177,7 +347,10 @@ pub async fn upload_files(
         });
     }
 
-    collect_results(set).await
+    let results = collect_results(set).await?;
+    let cache = app.state::<ObjectCacheManager>();
+    invalidate_after_mutation(&cache, &connection_id, &bucket, &prefix);
+    Ok(results)
 }
 
 #[tauri::command]
@@ -309,7 +482,11 @@ pub async fn delete_objects(
         .map_err(map_err)?;
     delete_objects_batch(&client, &bucket, &keys)
         .await
-        .map_err(map_err)
+        .map_err(map_err)?;
+
+    let cache = app.state::<ObjectCacheManager>();
+    invalidate_for_keys(&cache, &connection_id, &bucket, &keys);
+    Ok(())
 }
 
 #[tauri::command]
@@ -325,7 +502,24 @@ pub async fn rename_object(
         .map_err(map_err)?;
     s3_rename_object(&client, &bucket, &old_key, &new_key)
         .await
-        .map_err(map_err)
+        .map_err(map_err)?;
+
+    let cache = app.state::<ObjectCacheManager>();
+    invalidate_after_mutation(
+        &cache,
+        &connection_id,
+        &bucket,
+        &parent_prefix_from_key(&old_key),
+    );
+    invalidate_after_mutation(
+        &cache,
+        &connection_id,
+        &bucket,
+        &parent_prefix_from_key(&new_key),
+    );
+    let _ = cache.invalidate_head(&connection_id, &bucket, &old_key);
+    let _ = cache.invalidate_head(&connection_id, &bucket, &new_key);
+    Ok(())
 }
 
 #[tauri::command]
@@ -334,11 +528,74 @@ pub async fn head_object(
     connection_id: String,
     bucket: String,
     key: String,
-) -> Result<ObjectHeadResult, String> {
+    force_refresh: Option<bool>,
+) -> Result<ObjectHeadResponse, String> {
+    let cache = app.state::<ObjectCacheManager>();
+
+    if !force_refresh.unwrap_or(false) {
+        if let Some((result, fetched_at)) = cache.get_head(&connection_id, &bucket, &key) {
+            return Ok(ObjectHeadResponse {
+                result,
+                from_cache: true,
+                fetched_at: Some(fetched_at),
+            });
+        }
+    }
+
     let client = build_client_for_id(&app, &connection_id)
         .await
         .map_err(map_err)?;
-    s3_head_object(&client, &bucket, &key)
+    let result = s3_head_object(&client, &bucket, &key)
+        .await
+        .map_err(map_err)?;
+    let _ = cache.put_head(&connection_id, &bucket, &key, &result);
+
+    Ok(ObjectHeadResponse {
+        result,
+        from_cache: false,
+        fetched_at: Some(timestamp_now()),
+    })
+}
+
+#[tauri::command]
+pub async fn presign_object(
+    app: AppHandle,
+    connection_id: String,
+    bucket: String,
+    key: String,
+    expires_secs: Option<u64>,
+) -> Result<String, String> {
+    let client = build_client_for_id(&app, &connection_id)
+        .await
+        .map_err(map_err)?;
+    s3_presign_get_object(&client, &bucket, &key, expires_secs.unwrap_or(3600))
+        .await
+        .map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn preview_object_to_cache(
+    app: AppHandle,
+    connection_id: String,
+    bucket: String,
+    key: String,
+) -> Result<String, String> {
+    let client = build_client_for_id(&app, &connection_id)
+        .await
+        .map_err(map_err)?;
+    let cache = app.state::<ObjectCacheManager>();
+    let head = if let Some((result, _)) = cache.get_head(&connection_id, &bucket, &key) {
+        result
+    } else {
+        let fetched = s3_head_object(&client, &bucket, &key)
+            .await
+            .map_err(map_err)?;
+        let _ = cache.put_head(&connection_id, &bucket, &key, &fetched);
+        fetched
+    };
+
+    let cache_dir = storage::paths::preview_cache_dir(&app).map_err(map_err)?;
+    s3_preview_object_to_cache(&app, &client, &cache_dir, &bucket, &key, &head)
         .await
         .map_err(map_err)
 }
@@ -394,6 +651,9 @@ pub async fn create_folder(
     if !key.ends_with('/') {
         key.push('/');
     }
+
+    let cache = app.state::<ObjectCacheManager>();
+    invalidate_after_mutation(&cache, &connection_id, &bucket, &key);
     Ok(key)
 }
 
@@ -457,7 +717,17 @@ pub async fn copy_objects(
     let resolved = resolve_items(items, dest_prefix.as_deref());
     s3_copy_objects_batch(&app, &client, &src_bucket, &dest_bucket, &resolved)
         .await
-        .map_err(map_err)
+        .map_err(map_err)?;
+
+    let cache = app.state::<ObjectCacheManager>();
+    let src_keys: Vec<String> = resolved.iter().map(|i| i.src_key.clone()).collect();
+    let dest_keys: Vec<String> = resolved.iter().map(|i| i.dest_key.clone()).collect();
+    invalidate_for_keys(&cache, &connection_id, &src_bucket, &src_keys);
+    invalidate_for_keys(&cache, &connection_id, &dest_bucket, &dest_keys);
+    if let Some(prefix) = dest_prefix.as_deref().filter(|p| !p.is_empty()) {
+        invalidate_after_mutation(&cache, &connection_id, &dest_bucket, prefix);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -478,5 +748,15 @@ pub async fn move_objects(
     let resolved = resolve_items(items, dest_prefix.as_deref());
     s3_move_objects_batch(&app, &client, &src_bucket, &dest_bucket, &resolved)
         .await
-        .map_err(map_err)
+        .map_err(map_err)?;
+
+    let cache = app.state::<ObjectCacheManager>();
+    let src_keys: Vec<String> = resolved.iter().map(|i| i.src_key.clone()).collect();
+    let dest_keys: Vec<String> = resolved.iter().map(|i| i.dest_key.clone()).collect();
+    invalidate_for_keys(&cache, &connection_id, &src_bucket, &src_keys);
+    invalidate_for_keys(&cache, &connection_id, &dest_bucket, &dest_keys);
+    if let Some(prefix) = dest_prefix.as_deref().filter(|p| !p.is_empty()) {
+        invalidate_after_mutation(&cache, &connection_id, &dest_bucket, prefix);
+    }
+    Ok(())
 }

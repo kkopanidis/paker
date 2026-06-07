@@ -7,6 +7,9 @@ interface KeyboardShortcuts {
   onOpenSelected?: () => void;
   onSelectAll?: () => void;
   onDownload?: () => void;
+  onFilter?: () => void;
+  onRename?: () => void;
+  onHelp?: () => void;
   disabled?: boolean;
 }
 
@@ -17,6 +20,9 @@ export function useKeyboardShortcuts({
   onOpenSelected,
   onSelectAll,
   onDownload,
+  onFilter,
+  onRename,
+  onHelp,
   disabled,
 }: KeyboardShortcuts) {
   useEffect(() => {
@@ -50,10 +56,33 @@ export function useKeyboardShortcuts({
       } else if (event.key === "d" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         onDownload?.();
+      } else if (event.key === "f" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        onFilter?.();
+      } else if (event.key === "F2") {
+        event.preventDefault();
+        onRename?.();
+      } else if (
+        event.key === "?" ||
+        (event.key === "/" && (event.metaKey || event.ctrlKey))
+      ) {
+        event.preventDefault();
+        onHelp?.();
       }
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [disabled, onRefresh, onDelete, onUpload, onOpenSelected, onSelectAll, onDownload]);
+  }, [
+    disabled,
+    onRefresh,
+    onDelete,
+    onUpload,
+    onOpenSelected,
+    onSelectAll,
+    onDownload,
+    onFilter,
+    onRename,
+    onHelp,
+  ]);
 }
