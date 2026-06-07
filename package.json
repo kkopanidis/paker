@@ -1,13 +1,14 @@
 {
   "name": "paker",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:windows-portable": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis && bash scripts/package-windows-portable.sh"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.16",

@@ -1,10 +1,13 @@
 use anyhow::{anyhow, Context, Result};
 use aws_sdk_s3::error::SdkError;
+use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart, ObjectIdentifier};
 use aws_sdk_s3::Client;
-use serde::Serialize;
+use std::time::Duration;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::fs;
@@ -13,10 +16,13 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::storage::bucket_index::{BucketIndexMeta, BucketIndexProgress, IndexedObject};
+use crate::storage::ObjectCacheManager;
 use crate::transfer::TransferManager;
 
 const MULTIPART_THRESHOLD: u64 = 5 * 1024 * 1024;
 const PART_SIZE: usize = 5 * 1024 * 1024;
+const PREVIEW_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -36,17 +42,18 @@ pub struct BucketInfo {
     pub creation_date: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectInfo {
     pub key: String,
     pub size: i64,
     pub last_modified: Option<String>,
     pub etag: Option<String>,
+    pub storage_class: Option<String>,
     pub is_prefix: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListObjectsResult {
     pub objects: Vec<ObjectInfo>,
@@ -55,7 +62,39 @@ pub struct ListObjectsResult {
     pub is_truncated: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrefixSizeResult {
+    pub prefix: String,
+    pub object_count: u64,
+    pub total_bytes: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrefixSizeProgress {
+    pub prefix: String,
+    pub object_count: u64,
+    pub total_bytes: u64,
+    pub done: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BucketMetadata {
+    pub name: String,
+    pub creation_date: Option<String>,
+    pub location: Option<String>,
+    pub versioning: Option<String>,
+    pub connection_name: Option<String>,
+    pub endpoint: Option<String>,
+    pub region: Option<String>,
+    pub force_path_style: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ObjectHeadResult {
     pub key: String,
@@ -65,6 +104,43 @@ pub struct ObjectHeadResult {
     pub etag: Option<String>,
     pub metadata: HashMap<String, String>,
     pub storage_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedListResponse {
+    pub result: ListObjectsResult,
+    pub fetched_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListObjectsResponse {
+    #[serde(flatten)]
+    pub result: ListObjectsResult,
+    pub from_cache: bool,
+    pub fetched_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectHeadResponse {
+    #[serde(flatten)]
+    pub result: ObjectHeadResult,
+    pub from_cache: bool,
+    pub fetched_at: Option<String>,
+}
+
+pub fn object_info_to_head(obj: &ObjectInfo) -> ObjectHeadResult {
+    ObjectHeadResult {
+        key: obj.key.clone(),
+        content_type: None,
+        content_length: Some(obj.size),
+        last_modified: obj.last_modified.clone(),
+        etag: obj.etag.clone(),
+        metadata: HashMap::new(),
+        storage_class: obj.storage_class.clone(),
+    }
 }
 
 fn emit_progress(
@@ -152,6 +228,26 @@ pub async fn list_buckets(client: &Client) -> Result<Vec<BucketInfo>> {
         .collect())
 }
 
+pub async fn presign_get_object(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+    expires_secs: u64,
+) -> Result<String> {
+    let presigned = client
+        .get_object()
+        .bucket(bucket)
+        .key(key)
+        .presigned(
+            PresigningConfig::expires_in(Duration::from_secs(expires_secs))
+                .context("invalid presign expiry")?,
+        )
+        .await
+        .context("presign_get_object failed")?;
+
+    Ok(presigned.uri().to_string())
+}
+
 pub async fn head_object(client: &Client, bucket: &str, key: &str) -> Result<ObjectHeadResult> {
     let response = client
         .head_object()
@@ -210,6 +306,423 @@ pub async fn verify_bucket_access(client: &Client, bucket: &str) -> Result<()> {
     Ok(())
 }
 
+fn normalize_prefix(prefix: &str) -> String {
+    if prefix.is_empty() {
+        return String::new();
+    }
+    if prefix.ends_with('/') {
+        prefix.to_string()
+    } else {
+        format!("{prefix}/")
+    }
+}
+
+fn emit_prefix_size_progress(app: &AppHandle, progress: PrefixSizeProgress) {
+    let _ = app.emit("prefix-size-progress", progress);
+}
+
+fn emit_bucket_index_progress(app: &AppHandle, progress: BucketIndexProgress) {
+    let _ = app.emit("bucket-index-progress", progress);
+}
+
+fn timestamp_now() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .to_string()
+}
+
+async fn wait_if_index_paused(
+    app: &AppHandle,
+    job_id: &str,
+    connection_id: &str,
+    bucket: &str,
+    object_count: u64,
+    cancel_token: &CancellationToken,
+) -> bool {
+    let paused = app
+        .try_state::<TransferManager>()
+        .map_or(false, |m| m.is_paused(job_id));
+
+    if !paused {
+        return false;
+    }
+
+    emit_bucket_index_progress(
+        app,
+        BucketIndexProgress {
+            connection_id: connection_id.to_string(),
+            bucket: bucket.to_string(),
+            object_count,
+            status: "paused".to_string(),
+            done: false,
+            error: None,
+        },
+    );
+
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+        if cancel_token.is_cancelled() {
+            return true;
+        }
+
+        let still_paused = app
+            .try_state::<TransferManager>()
+            .map_or(false, |m| m.is_paused(job_id));
+
+        if !still_paused {
+            break;
+        }
+    }
+
+    false
+}
+
+pub async fn index_bucket_flat(
+    app: &AppHandle,
+    client: &Client,
+    cache: &ObjectCacheManager,
+    connection_id: &str,
+    bucket: &str,
+    job_id: &str,
+    cancel_token: CancellationToken,
+    rebuild: bool,
+) -> Result<()> {
+    let started_at = timestamp_now();
+
+    if rebuild {
+        cache.clear_bucket_index(connection_id, bucket)?;
+    }
+
+    cache.upsert_bucket_index_meta(&BucketIndexMeta {
+        connection_id: connection_id.to_string(),
+        bucket: bucket.to_string(),
+        status: "running".to_string(),
+        object_count: 0,
+        started_at: Some(started_at.clone()),
+        completed_at: None,
+        error: None,
+    })?;
+
+    let mut continuation_token: Option<String> = None;
+    let mut object_count: u64 = 0;
+
+    emit_bucket_index_progress(
+        app,
+        BucketIndexProgress {
+            connection_id: connection_id.to_string(),
+            bucket: bucket.to_string(),
+            object_count: 0,
+            status: "running".to_string(),
+            done: false,
+            error: None,
+        },
+    );
+
+    loop {
+        if cancel_token.is_cancelled() {
+            cache.upsert_bucket_index_meta(&BucketIndexMeta {
+                connection_id: connection_id.to_string(),
+                bucket: bucket.to_string(),
+                status: "cancelled".to_string(),
+                object_count,
+                started_at: Some(started_at.clone()),
+                completed_at: Some(timestamp_now()),
+                error: None,
+            })?;
+            emit_bucket_index_progress(
+                app,
+                BucketIndexProgress {
+                    connection_id: connection_id.to_string(),
+                    bucket: bucket.to_string(),
+                    object_count,
+                    status: "cancelled".to_string(),
+                    done: true,
+                    error: None,
+                },
+            );
+            return Ok(());
+        }
+
+        if wait_if_index_paused(
+            app,
+            job_id,
+            connection_id,
+            bucket,
+            object_count,
+            &cancel_token,
+        )
+        .await
+        {
+            cache.upsert_bucket_index_meta(&BucketIndexMeta {
+                connection_id: connection_id.to_string(),
+                bucket: bucket.to_string(),
+                status: "cancelled".to_string(),
+                object_count,
+                started_at: Some(started_at.clone()),
+                completed_at: Some(timestamp_now()),
+                error: None,
+            })?;
+            emit_bucket_index_progress(
+                app,
+                BucketIndexProgress {
+                    connection_id: connection_id.to_string(),
+                    bucket: bucket.to_string(),
+                    object_count,
+                    status: "cancelled".to_string(),
+                    done: true,
+                    error: None,
+                },
+            );
+            return Ok(());
+        }
+
+        let mut request = client
+            .list_objects_v2()
+            .bucket(bucket)
+            .max_keys(1000);
+
+        if let Some(token) = continuation_token.as_deref() {
+            request = request.continuation_token(token);
+        }
+
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(err) => {
+                let message = err.to_string();
+                cache.upsert_bucket_index_meta(&BucketIndexMeta {
+                    connection_id: connection_id.to_string(),
+                    bucket: bucket.to_string(),
+                    status: "failed".to_string(),
+                    object_count,
+                    started_at: Some(started_at.clone()),
+                    completed_at: Some(timestamp_now()),
+                    error: Some(message.clone()),
+                })?;
+                emit_bucket_index_progress(
+                    app,
+                    BucketIndexProgress {
+                        connection_id: connection_id.to_string(),
+                        bucket: bucket.to_string(),
+                        object_count,
+                        status: "failed".to_string(),
+                        done: true,
+                        error: Some(message.clone()),
+                    },
+                );
+                return Err(anyhow!("index_bucket_flat failed: {message}"));
+            }
+        };
+
+        let batch: Vec<IndexedObject> = response
+            .contents()
+            .iter()
+            .filter_map(|object| {
+                object.key().map(|key| IndexedObject {
+                    key: key.to_string(),
+                    size: object.size().unwrap_or_default(),
+                    last_modified: object.last_modified().map(|dt| dt.to_string()),
+                    etag: object.e_tag().map(|etag| etag.to_string()),
+                    storage_class: object
+                        .storage_class()
+                        .map(|class| class.as_str().to_string()),
+                })
+            })
+            .collect();
+
+        object_count += batch.len() as u64;
+        cache.upsert_indexed_objects_batch(connection_id, bucket, &batch)?;
+
+        cache.upsert_bucket_index_meta(&BucketIndexMeta {
+            connection_id: connection_id.to_string(),
+            bucket: bucket.to_string(),
+            status: "running".to_string(),
+            object_count,
+            started_at: Some(started_at.clone()),
+            completed_at: None,
+            error: None,
+        })?;
+
+        emit_bucket_index_progress(
+            app,
+            BucketIndexProgress {
+                connection_id: connection_id.to_string(),
+                bucket: bucket.to_string(),
+                object_count,
+                status: "running".to_string(),
+                done: false,
+                error: None,
+            },
+        );
+
+        if !response.is_truncated().unwrap_or(false) {
+            break;
+        }
+
+        continuation_token = response.next_continuation_token().map(|s| s.to_string());
+        if continuation_token.is_none() {
+            break;
+        }
+    }
+
+    cache.upsert_bucket_index_meta(&BucketIndexMeta {
+        connection_id: connection_id.to_string(),
+        bucket: bucket.to_string(),
+        status: "completed".to_string(),
+        object_count,
+        started_at: Some(started_at),
+        completed_at: Some(timestamp_now()),
+        error: None,
+    })?;
+
+    emit_bucket_index_progress(
+        app,
+        BucketIndexProgress {
+            connection_id: connection_id.to_string(),
+            bucket: bucket.to_string(),
+            object_count,
+            status: "completed".to_string(),
+            done: true,
+            error: None,
+        },
+    );
+
+    Ok(())
+}
+
+pub async fn calculate_prefix_size(
+    app: &AppHandle,
+    client: &Client,
+    bucket: &str,
+    prefix: &str,
+) -> Result<PrefixSizeResult> {
+    let normalized = if prefix.is_empty() {
+        String::new()
+    } else {
+        normalize_prefix(prefix)
+    };
+
+    let mut continuation_token: Option<String> = None;
+    let mut object_count: u64 = 0;
+    let mut total_bytes: u64 = 0;
+
+    loop {
+        let mut request = client
+            .list_objects_v2()
+            .bucket(bucket)
+            .max_keys(1000);
+
+        if !normalized.is_empty() {
+            request = request.prefix(&normalized);
+        }
+
+        if let Some(token) = continuation_token.as_deref() {
+            request = request.continuation_token(token);
+        }
+
+        let response = request.send().await.context("calculate_prefix_size failed")?;
+
+        for object in response.contents() {
+            let Some(key) = object.key() else {
+                continue;
+            };
+            let size = object.size().unwrap_or_default().max(0) as u64;
+            if key.ends_with('/') && size == 0 {
+                continue;
+            }
+            object_count += 1;
+            total_bytes += size;
+        }
+
+        emit_prefix_size_progress(
+            app,
+            PrefixSizeProgress {
+                prefix: normalized.clone(),
+                object_count,
+                total_bytes,
+                done: false,
+                error: None,
+            },
+        );
+
+        if !response.is_truncated().unwrap_or(false) {
+            break;
+        }
+
+        continuation_token = response
+            .next_continuation_token()
+            .map(|s| s.to_string());
+
+        if continuation_token.is_none() {
+            break;
+        }
+    }
+
+    let result = PrefixSizeResult {
+        prefix: normalized,
+        object_count,
+        total_bytes,
+    };
+
+    emit_prefix_size_progress(
+        app,
+        PrefixSizeProgress {
+            prefix: result.prefix.clone(),
+            object_count: result.object_count,
+            total_bytes: result.total_bytes,
+            done: true,
+            error: None,
+        },
+    );
+
+    Ok(result)
+}
+
+pub async fn get_bucket_metadata(
+    client: &Client,
+    bucket: &str,
+    creation_date: Option<String>,
+    connection_name: Option<String>,
+    endpoint: Option<String>,
+    region: Option<String>,
+    force_path_style: Option<bool>,
+) -> Result<BucketMetadata> {
+    let location = match client.get_bucket_location().bucket(bucket).send().await {
+        Ok(response) => {
+            let constraint = response
+                .location_constraint()
+                .map(|c| c.as_str().to_string())
+                .unwrap_or_default();
+            Some(if constraint.is_empty() {
+                "us-east-1".to_string()
+            } else {
+                constraint
+            })
+        }
+        Err(_) => None,
+    };
+
+    let versioning = match client.get_bucket_versioning().bucket(bucket).send().await {
+        Ok(response) => response
+            .status()
+            .map(|status| status.as_str().to_string()),
+        Err(_) => None,
+    };
+
+    Ok(BucketMetadata {
+        name: bucket.to_string(),
+        creation_date,
+        location,
+        versioning,
+        connection_name,
+        endpoint,
+        region,
+        force_path_style,
+    })
+}
+
 pub async fn list_objects_v2(
     client: &Client,
     bucket: &str,
@@ -241,6 +754,9 @@ pub async fn list_objects_v2(
                 size: object.size().unwrap_or_default(),
                 last_modified: object.last_modified().map(|dt| dt.to_string()),
                 etag: object.e_tag().map(|etag| etag.to_string()),
+                storage_class: object
+                    .storage_class()
+                    .map(|class| class.as_str().to_string()),
                 is_prefix: false,
             })
         })
@@ -724,6 +1240,67 @@ pub fn join_prefix(prefix: &str, file_name: &str) -> String {
 
 pub fn local_dest_path(save_dir: &Path, key: &str) -> PathBuf {
     save_dir.join(key)
+}
+
+fn preview_etag_sidecar(dest: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.etag", dest.display()))
+}
+
+fn preview_cache_file_name(bucket: &str, key: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bucket.hash(&mut hasher);
+    key.hash(&mut hasher);
+    let hash = hasher.finish();
+    let ext = Path::new(key)
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| !e.is_empty());
+    match ext {
+        Some(ext) => format!("{hash:x}.{ext}"),
+        None => format!("{hash:x}"),
+    }
+}
+
+pub async fn preview_object_to_cache(
+    app: &AppHandle,
+    client: &Client,
+    cache_dir: &Path,
+    bucket: &str,
+    key: &str,
+    head: &ObjectHeadResult,
+) -> Result<String> {
+    let size = head.content_length.unwrap_or(0).max(0) as u64;
+    if size > PREVIEW_MAX_BYTES {
+        return Err(anyhow!(
+            "object too large for preview ({size} bytes, max {PREVIEW_MAX_BYTES})"
+        ));
+    }
+
+    let dest = cache_dir.join(preview_cache_file_name(bucket, key));
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+
+    let etag_sidecar = preview_etag_sidecar(&dest);
+    if dest.is_file() {
+        if let Some(remote_etag) = head.etag.as_deref() {
+            if let Ok(cached_etag) = fs::read_to_string(&etag_sidecar).await {
+                if cached_etag.trim() == remote_etag.trim() {
+                    return Ok(dest.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+
+    get_object_to_path(app, client, bucket, key, &dest, None, None).await?;
+
+    if let Some(etag) = &head.etag {
+        let _ = fs::write(&etag_sidecar, etag).await;
+    }
+
+    Ok(dest.to_string_lossy().into_owned())
 }
 
 pub struct CopyItem {

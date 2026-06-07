@@ -11,6 +11,7 @@ import {
   moveObjects,
   normalizeObjects,
   pickUploadFiles,
+  readListCache,
   renameObject,
   uploadFiles,
   verifyBucket,
@@ -67,6 +68,9 @@ export function useBrowser(connection: S3Connection | null) {
   const [continuationToken, setContinuationToken] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [objectsStale, setObjectsStale] = useState(false);
+  const [objectsFetchedAt, setObjectsFetchedAt] = useState<string | null>(null);
+  const [refreshingObjects, setRefreshingObjects] = useState(false);
   const [busy, setBusy] = useState(false);
   const [bucketPromptOpen, setBucketPromptOpen] = useState(false);
   const [bucketPromptBusy, setBucketPromptBusy] = useState(false);
@@ -147,31 +151,74 @@ export function useBrowser(connection: S3Connection | null) {
     [connection, applyFixedBucket]
   );
 
-  const loadObjects = useCallback(async () => {
+  const loadObjects = useCallback(async (forceRefresh = false) => {
     if (!connection || !selectedBucket) {
       setObjects([]);
       setContinuationToken(null);
       setHasMore(false);
+      setObjectsStale(false);
+      setObjectsFetchedAt(null);
+      setRefreshingObjects(false);
       return;
     }
 
-    setLoadingObjects(true);
     setContinuationToken(null);
     setHasMore(false);
+
+    let cacheHit = false;
+    if (!forceRefresh) {
+      try {
+        const cached = await readListCache(connection.id, selectedBucket, prefix);
+        if (cached) {
+          cacheHit = true;
+          setObjects(normalizeObjects(cached.result, prefix));
+          setSelectedKeys(new Set());
+          setContinuationToken(cached.result.continuationToken ?? null);
+          setHasMore(cached.result.isTruncated);
+          setObjectsStale(true);
+          setObjectsFetchedAt(cached.fetchedAt);
+          setLoadingObjects(false);
+        }
+      } catch {
+        // Ignore cache read errors; fall through to network fetch.
+      }
+    }
+
+    if (!cacheHit) {
+      setLoadingObjects(true);
+      if (forceRefresh) {
+        setObjectsStale(false);
+      }
+    }
+
+    setRefreshingObjects(true);
     try {
-      const result = await listObjects(connection.id, selectedBucket, prefix);
+      const result = await listObjects(
+        connection.id,
+        selectedBucket,
+        prefix,
+        undefined,
+        forceRefresh
+      );
       setObjects(normalizeObjects(result, prefix));
       setSelectedKeys(new Set());
       setContinuationToken(result.continuationToken ?? null);
       setHasMore(result.isTruncated);
+      setObjectsStale(false);
+      setObjectsFetchedAt(result.fetchedAt ?? null);
     } catch (error) {
-      toast.error("Failed to list objects", {
-        description: error instanceof Error ? error.message : String(error),
-      });
+      if (!cacheHit) {
+        toast.error("Failed to list objects", {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
     } finally {
       setLoadingObjects(false);
+      setRefreshingObjects(false);
     }
   }, [connection, selectedBucket, prefix]);
+
+  const refreshObjects = useCallback(() => loadObjects(true), [loadObjects]);
 
   const loadMoreObjects = useCallback(async () => {
     if (!hasMore || loadingMore || !connection || !selectedBucket || !continuationToken) {
@@ -217,6 +264,24 @@ export function useBrowser(connection: S3Connection | null) {
     setPrefix("");
     setSelectedKeys(new Set());
   }, [connection?.id, configuredBucket, loadBuckets]);
+
+  const applyNavigation = useCallback(
+    (bucket: string, nextPrefix: string) => {
+      setSelectedBucket(bucket);
+      if (!configuredBucket) {
+        setBuckets((current) =>
+          current.some((entry) => entry.name === bucket)
+            ? current
+            : [...current, { name: bucket }]
+        );
+      }
+      setPrefix(nextPrefix);
+      setSelectedKeys(new Set());
+      setContinuationToken(null);
+      setHasMore(false);
+    },
+    [configuredBucket]
+  );
 
   useEffect(() => {
     void loadObjects();
@@ -269,6 +334,10 @@ export function useBrowser(connection: S3Connection | null) {
 
   const selectAll = useCallback(() => toggleAll(true), [toggleAll]);
 
+  const clearSelection = useCallback(() => {
+    setSelectedKeys(new Set());
+  }, []);
+
   const selectedObjects = useMemo(
     () => objects.filter((o) => selectedKeys.has(o.key)),
     [objects, selectedKeys]
@@ -288,7 +357,7 @@ export function useBrowser(connection: S3Connection | null) {
       try {
         await action();
         toast.success(label);
-        await loadObjects();
+        await loadObjects(true);
       } catch (error) {
         toast.error(`${label} failed`, {
           description: error instanceof Error ? error.message : String(error),
@@ -460,6 +529,9 @@ export function useBrowser(connection: S3Connection | null) {
     selectedObjects,
     loadingBuckets,
     loadingObjects,
+    objectsStale,
+    objectsFetchedAt,
+    refreshingObjects,
     hasMore,
     loadingMore,
     busy,
@@ -468,6 +540,7 @@ export function useBrowser(connection: S3Connection | null) {
     bucketPromptBusy,
     browseAllBuckets,
     verifyAndConnectBucket,
+    applyNavigation,
     navigateToPrefix,
     navigateUp,
     openFolder,
@@ -475,8 +548,9 @@ export function useBrowser(connection: S3Connection | null) {
     toggleAll,
     selectKeys,
     selectAll,
+    clearSelection,
     refreshBuckets: loadBuckets,
-    refreshObjects: loadObjects,
+    refreshObjects,
     loadMoreObjects,
     prepareUpload,
     executeUpload,

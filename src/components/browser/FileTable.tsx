@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -11,6 +11,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Calculator,
   Copy,
   CopyPlus,
   Download,
@@ -24,7 +25,6 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   ContextMenu,
@@ -46,10 +46,15 @@ import {
 import { cn } from "@/lib/utils";
 import { formatBytes, formatDate } from "@/lib/utils";
 import type { S3Object } from "@/types/s3";
+import type { TypeFilter } from "@/components/browser/BrowserFilterBar";
 
 interface FileTableProps {
   objects: S3Object[];
   selectedKeys: Set<string>;
+  focusedKey?: string | null;
+  filterText?: string;
+  typeFilter?: TypeFilter;
+  scrollContainerRef?: RefObject<HTMLElement | null>;
   loading?: boolean;
   hasMore?: boolean;
   loadingMore?: boolean;
@@ -67,6 +72,7 @@ interface FileTableProps {
   onContextOpen?: (object: S3Object) => void;
   onContextCopyTo?: () => void;
   onContextMoveTo?: () => void;
+  onContextCalculateSize?: (object: S3Object) => void;
   draggable?: boolean;
   onDropLocalPaths?: (paths: string[]) => void;
 }
@@ -75,6 +81,35 @@ function SortIcon({ sorted }: { sorted: false | "asc" | "desc" }) {
   if (sorted === "asc") return <ArrowUp className="ml-1 inline h-3.5 w-3.5" />;
   if (sorted === "desc") return <ArrowDown className="ml-1 inline h-3.5 w-3.5" />;
   return <ArrowUpDown className="ml-1 inline h-3.5 w-3.5 opacity-40" />;
+}
+
+function matchesTypeFilter(object: S3Object, typeFilter: TypeFilter): boolean {
+  switch (typeFilter) {
+    case "folders":
+      return object.isFolder;
+    case "files":
+      return !object.isFolder;
+    case "glacier":
+      return object.storageClass?.toUpperCase().includes("GLACIER") ?? false;
+    default:
+      return true;
+  }
+}
+
+function filterObjects(
+  objects: S3Object[],
+  filterText?: string,
+  typeFilter?: TypeFilter
+): S3Object[] {
+  let result = objects;
+  const query = filterText?.trim().toLowerCase();
+  if (query) {
+    result = result.filter((object) => object.name.toLowerCase().includes(query));
+  }
+  if (typeFilter && typeFilter !== "all") {
+    result = result.filter((object) => matchesTypeFilter(object, typeFilter));
+  }
+  return result;
 }
 
 function resolveContextTargets(
@@ -88,7 +123,7 @@ function resolveContextTargets(
   return [object];
 }
 
-function RowContextMenu({
+function RowContextMenuItems({
   object,
   selectedKeys,
   objects,
@@ -99,6 +134,7 @@ function RowContextMenu({
   onContextDelete,
   onContextCopyTo,
   onContextMoveTo,
+  onContextCalculateSize,
 }: {
   object: S3Object;
   selectedKeys: Set<string>;
@@ -110,6 +146,7 @@ function RowContextMenu({
   onContextDelete?: (objects: S3Object[]) => void;
   onContextCopyTo?: () => void;
   onContextMoveTo?: () => void;
+  onContextCalculateSize?: (object: S3Object) => void;
 }) {
   const targets = resolveContextTargets(object, selectedKeys, objects);
   const single = targets.length === 1 ? targets[0] : null;
@@ -119,12 +156,21 @@ function RowContextMenu({
   const canRename = !!single && !!onContextRename;
   const canCopyPath = !!single && !!onContextCopyPath;
   const canDelete = targets.length > 0 && !!onContextDelete;
+  const canCalculateSize = !!single?.isFolder && !!onContextCalculateSize;
 
   return (
-    <ContextMenuContent>
+    <>
       <ContextMenuItem disabled={!canOpen} onSelect={() => single && onContextOpen?.(single)}>
         <FolderOpen className="h-4 w-4" />
         Open
+        <ContextMenuShortcut>Enter</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={!canCalculateSize}
+        onSelect={() => single && onContextCalculateSize?.(single)}
+      >
+        <Calculator className="h-4 w-4" />
+        Calculate size
       </ContextMenuItem>
       <ContextMenuItem
         disabled={!canDownload}
@@ -132,10 +178,12 @@ function RowContextMenu({
       >
         <Download className="h-4 w-4" />
         Download
+        <ContextMenuShortcut>⌘D</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuItem disabled={!canRename} onSelect={() => single && onContextRename?.(single)}>
         <Pencil className="h-4 w-4" />
         Rename
+        <ContextMenuShortcut>F2</ContextMenuShortcut>
       </ContextMenuItem>
       <ContextMenuItem disabled={!canCopyPath} onSelect={() => single && onContextCopyPath?.(single)}>
         <Copy className="h-4 w-4" />
@@ -162,12 +210,13 @@ function RowContextMenu({
       >
         <Trash2 className="h-4 w-4" />
         Delete
+        <ContextMenuShortcut>Del</ContextMenuShortcut>
       </ContextMenuItem>
-    </ContextMenuContent>
+    </>
   );
 }
 
-function AreaContextMenu({
+function AreaContextMenuItems({
   onContextUpload,
   onContextRefresh,
 }: {
@@ -175,11 +224,11 @@ function AreaContextMenu({
   onContextRefresh?: () => void;
 }) {
   return (
-    <ContextMenuContent>
+    <>
       <ContextMenuItem disabled={!onContextUpload} onSelect={() => onContextUpload?.()}>
         <Upload className="h-4 w-4" />
         Upload
-        <ContextMenuShortcut>U</ContextMenuShortcut>
+        <ContextMenuShortcut>⌘U</ContextMenuShortcut>
       </ContextMenuItem>
       {onContextRefresh ? (
         <ContextMenuItem onSelect={() => onContextRefresh()}>
@@ -188,13 +237,23 @@ function AreaContextMenu({
           <ContextMenuShortcut>F5</ContextMenuShortcut>
         </ContextMenuItem>
       ) : null}
-    </ContextMenuContent>
+    </>
   );
+}
+
+function rowState(selected: boolean, focused: boolean): string | undefined {
+  if (selected) return "selected";
+  if (focused) return "focused";
+  return undefined;
 }
 
 export function FileTable({
   objects,
   selectedKeys,
+  focusedKey,
+  filterText,
+  typeFilter = "all",
+  scrollContainerRef,
   loading,
   hasMore,
   loadingMore,
@@ -212,12 +271,85 @@ export function FileTable({
   onContextOpen,
   onContextCopyTo,
   onContextMoveTo,
+  onContextCalculateSize,
   draggable = true,
   onDropLocalPaths,
 }: FileTableProps) {
   const [sorting, setSorting] = useState<SortingState>([{ id: "name", desc: false }]);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [contextTarget, setContextTarget] = useState<S3Object | null>(null);
   const dragOverRef = useRef(false);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+
+  const filteredObjects = useMemo(
+    () => filterObjects(objects, filterText, typeFilter),
+    [objects, filterText, typeFilter]
+  );
+
+  const handleRowActivate = useCallback(
+    (object: S3Object, event: React.MouseEvent) => {
+      if (event.detail === 2 && object.isFolder) {
+        event.preventDefault();
+        onOpenFolder(object.key);
+        return;
+      }
+      if (event.detail === 1) {
+        onRowClick?.(object);
+      }
+    },
+    [onOpenFolder, onRowClick]
+  );
+
+  const handleCheckboxCellPointer = useCallback(
+    (object: S3Object, event: React.MouseEvent) => {
+      if (event.detail === 1) {
+        event.stopPropagation();
+        return;
+      }
+      event.stopPropagation();
+      if (object.isFolder) {
+        event.preventDefault();
+        onOpenFolder(object.key);
+      }
+    },
+    [onOpenFolder]
+  );
+
+  const handleRowContextMenu = useCallback(
+    (object: S3Object) => {
+      setContextTarget(object);
+      onRowClick?.(object);
+    },
+    [onRowClick]
+  );
+
+  const handleAreaContextMenu = useCallback((event: React.MouseEvent) => {
+    const row = (event.target as HTMLElement).closest("tr[data-file-row]");
+    if (!row) {
+      setContextTarget(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel || !hasMore || !onLoadMore) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMore && !loadingMore) {
+          onLoadMore();
+        }
+      },
+      {
+        root: scrollContainerRef?.current ?? null,
+        rootMargin: "120px",
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, onLoadMore, scrollContainerRef, filteredObjects.length]);
 
   function handleDragStart(e: React.DragEvent, object: S3Object) {
     if (object.isFolder) return;
@@ -274,15 +406,22 @@ export function FileTable({
             aria-label="Select all"
           />
         ),
-        cell: ({ row }) => (
-          <div onClick={(event) => event.stopPropagation()}>
-            <Checkbox
-              checked={selectedKeys.has(row.original.key)}
-              onCheckedChange={(value) => onToggleKey(row.original.key, !!value)}
-              aria-label={`Select ${row.original.name}`}
-            />
-          </div>
-        ),
+        cell: ({ row }) => {
+          const object = row.original;
+          return (
+            <div
+              className="flex h-full min-h-9 items-center"
+              onClick={(event) => handleCheckboxCellPointer(object, event)}
+              onDoubleClick={(event) => handleCheckboxCellPointer(object, event)}
+            >
+              <Checkbox
+                checked={selectedKeys.has(object.key)}
+                onCheckedChange={(value) => onToggleKey(object.key, !!value)}
+                aria-label={`Select ${object.name}`}
+              />
+            </div>
+          );
+        },
         enableSorting: false,
         size: 40,
       },
@@ -321,11 +460,11 @@ export function FileTable({
         cell: ({ row }) => row.original.storageClass ?? "—",
       },
     ],
-    [onToggleAll, onToggleKey, selectedKeys]
+    [handleCheckboxCellPointer, onToggleAll, onToggleKey, selectedKeys]
   );
 
   const table = useReactTable({
-    data: objects,
+    data: filteredObjects,
     columns,
     state: { sorting },
     onSortingChange: setSorting,
@@ -359,24 +498,60 @@ export function FileTable({
             This folder is empty.
           </div>
         </ContextMenuTrigger>
-        <AreaContextMenu onContextUpload={onContextUpload} onContextRefresh={onContextRefresh} />
+        <ContextMenuContent>
+          <AreaContextMenuItems
+            onContextUpload={onContextUpload}
+            onContextRefresh={onContextRefresh}
+          />
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  }
+
+  if (filteredObjects.length === 0) {
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className={cn(
+              "flex h-full min-h-[12rem] items-center justify-center p-8 text-sm text-muted-foreground transition-colors",
+              isDragOver && "bg-primary/5 ring-2 ring-inset ring-primary"
+            )}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            No matching objects.
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <AreaContextMenuItems
+            onContextUpload={onContextUpload}
+            onContextRefresh={onContextRefresh}
+          />
+        </ContextMenuContent>
       </ContextMenu>
     );
   }
 
   return (
-    <ContextMenu>
+    <ContextMenu
+      onOpenChange={(open) => {
+        if (!open) setContextTarget(null);
+      }}
+    >
       <ContextMenuTrigger asChild>
         <div
           className={cn(
             "min-h-full transition-colors",
             isDragOver && "bg-primary/5 ring-2 ring-inset ring-primary"
           )}
+          onContextMenu={handleAreaContextMenu}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
         >
-          <Table>
+          <Table wrapScroll={false}>
             <TableHeader className="sticky top-0 z-10 bg-background">
               {table.getHeaderGroups().map((headerGroup) => (
                 <TableRow key={headerGroup.id}>
@@ -401,68 +576,68 @@ export function FileTable({
             </TableHeader>
             <TableBody>
               {table.getRowModel().rows.map((row) => (
-                <ContextMenu key={row.id}>
-                  <ContextMenuTrigger asChild>
-                    <TableRow
-                      data-state={selectedKeys.has(row.original.key) ? "selected" : undefined}
-                      className="cursor-pointer"
-                      draggable={draggable && !row.original.isFolder}
-                      onDragStart={
-                        draggable && !row.original.isFolder
-                          ? (e) => handleDragStart(e, row.original)
-                          : undefined
-                      }
-                      onClick={() => {
-                        const key = row.original.key;
-                        onToggleKey(key, !selectedKeys.has(key));
-                        onRowClick?.(row.original);
-                      }}
-                      onDoubleClick={() => {
-                        if (row.original.isFolder) onOpenFolder(row.original.key);
-                      }}
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  </ContextMenuTrigger>
-                  <RowContextMenu
-                    object={row.original}
-                    selectedKeys={selectedKeys}
-                    objects={objects}
-                    onContextOpen={onContextOpen}
-                    onContextDownload={onContextDownload}
-                    onContextRename={onContextRename}
-                    onContextCopyPath={onContextCopyPath}
-                    onContextDelete={onContextDelete}
-                    onContextCopyTo={onContextCopyTo}
-                    onContextMoveTo={onContextMoveTo}
-                  />
-                </ContextMenu>
+                <TableRow
+                  key={row.id}
+                  data-file-row
+                  data-state={rowState(
+                    selectedKeys.has(row.original.key),
+                    focusedKey === row.original.key
+                  )}
+                  className="h-9 min-h-9 cursor-pointer"
+                  draggable={draggable && !row.original.isFolder}
+                  onDragStart={
+                    draggable && !row.original.isFolder
+                      ? (e) => handleDragStart(e, row.original)
+                      : undefined
+                  }
+                  onClick={(event) => handleRowActivate(row.original, event)}
+                  onContextMenu={() => handleRowContextMenu(row.original)}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
               ))}
             </TableBody>
           </Table>
           {hasMore ? (
-            <div className="flex justify-center border-t p-3">
+            <div
+              ref={loadMoreSentinelRef}
+              className="flex justify-center border-t p-3"
+              aria-hidden
+            >
               {loadingMore ? (
                 <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
               ) : (
-                <Button variant="outline" size="sm" onClick={onLoadMore}>
-                  Load more
-                </Button>
+                <span className="h-4" />
               )}
             </div>
           ) : null}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem disabled={!onContextUpload} onSelect={() => onContextUpload?.()}>
-          <Upload className="h-4 w-4" />
-          Upload
-          <ContextMenuShortcut>U</ContextMenuShortcut>
-        </ContextMenuItem>
+        {contextTarget ? (
+          <RowContextMenuItems
+            object={contextTarget}
+            selectedKeys={selectedKeys}
+            objects={filteredObjects}
+            onContextOpen={onContextOpen}
+            onContextDownload={onContextDownload}
+            onContextRename={onContextRename}
+            onContextCopyPath={onContextCopyPath}
+            onContextDelete={onContextDelete}
+            onContextCopyTo={onContextCopyTo}
+            onContextMoveTo={onContextMoveTo}
+            onContextCalculateSize={onContextCalculateSize}
+          />
+        ) : (
+          <AreaContextMenuItems
+            onContextUpload={onContextUpload}
+            onContextRefresh={onContextRefresh}
+          />
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

@@ -1,6 +1,6 @@
 [package]
 name = "paker"
-version = "0.1.1"
+version = "0.5.0"
 description = "Paker S3 desktop browser"
 authors = ["you"]
 edition = "2021"
@@ -29,5 +29,7 @@ rand = "0.8"
 base64 = "0.22"
 anyhow = "1"
 thiserror = "2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+lru = "0.12"
 rfd = "0.15"
 tokio-util = { version = "0.7", features = ["rt"] }
