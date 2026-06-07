@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import {
+  formatIpcError,
   getHomeDir,
   getLastLocalDir,
   getParentPath,
@@ -39,7 +40,7 @@ export function useLocalBrowser(connectionId: string | null) {
       setSelectedPaths(new Set());
     } catch (error) {
       toast.error("Failed to list directory", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     } finally {
       setLoading(false);
@@ -68,7 +69,7 @@ export function useLocalBrowser(connectionId: string | null) {
             if (!cancelled) await loadDir(home);
           } catch (error) {
             toast.error("Failed to load home directory", {
-              description: error instanceof Error ? error.message : String(error),
+              description: formatIpcError(error),
             });
           }
         }
@@ -88,7 +89,7 @@ export function useLocalBrowser(connectionId: string | null) {
       if (parent) await loadDir(parent);
     } catch (error) {
       toast.error("Failed to navigate up", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     }
   }, [cwd, loadDir]);
@@ -143,7 +144,7 @@ export function useLocalBrowser(connectionId: string | null) {
       }
     } catch (error) {
       toast.error("Failed to pick folder", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     } finally {
       setBusy(false);

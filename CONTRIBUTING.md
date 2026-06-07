@@ -41,11 +41,16 @@ Before opening a PR:
 1. **Link an issue** when one exists (or explain the motivation in the PR description).
 2. **Screenshots or screen recordings** for any UI change.
 3. Run checks locally:
+   - `npm run lint`
+   - `npm run test:all`
    - `npm run build`
-   - `npm run test:rust`
 4. Match existing code style — follow patterns in nearby files for naming, module layout, and error handling. Do not commit `data/`, secrets, or local editor artifacts.
 
 Keep PRs focused; prefer several small PRs over one large mixed change.
+
+### CI concurrency
+
+CI uses workflow concurrency with `cancel-in-progress: true` on each branch. Rapid merges to `main` cancel any still-running CI for the same ref, so only the latest commit is validated. This is expected — if your push was superseded, check the workflow run for the newest commit instead.
 
 ## Version and release process
 

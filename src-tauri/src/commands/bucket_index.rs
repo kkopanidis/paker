@@ -1,3 +1,5 @@
+use crate::commands::local_fs::LocalFsScope;
+use crate::error::{into_ipc_error, PakerError};
 use crate::index::BucketIndexManager;
 use crate::s3::build_client_for_id;
 use crate::s3::operations::index_bucket_flat;
@@ -9,16 +11,12 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
-fn map_err(err: impl ToString) -> String {
-    err.to_string()
-}
-
 #[tauri::command]
 pub async fn get_bucket_index_status(
     app: AppHandle,
     connection_id: String,
     bucket: String,
-) -> Result<Option<BucketIndexMeta>, String> {
+) -> Result<Option<BucketIndexMeta>, PakerError> {
     let cache = app.state::<ObjectCacheManager>();
     let manager = app.state::<BucketIndexManager>();
     let job_id = bucket_index_job_id(&connection_id, &bucket);
@@ -56,19 +54,19 @@ pub async fn start_bucket_index(
     connection_id: String,
     bucket: String,
     rebuild: Option<bool>,
-) -> Result<String, String> {
+) -> Result<String, PakerError> {
     let job_id = bucket_index_job_id(&connection_id, &bucket);
     let manager = app.state::<BucketIndexManager>();
 
     if !manager.try_start(&job_id) {
-        return Err("bucket index job is already running".to_string());
+        return Err(PakerError::IndexNotReady);
     }
 
     let client = match build_client_for_id(&app, &connection_id).await {
         Ok(client) => client,
         Err(err) => {
             manager.finish(&job_id);
-            return Err(map_err(err));
+            return Err(err);
         }
     };
 
@@ -94,6 +92,7 @@ pub async fn start_bucket_index(
         .await;
 
         if let Err(err) = result {
+            tracing::warn!(error = %err, "bucket index failed");
             let _ = app_clone.emit(
                 "bucket-index-progress",
                 BucketIndexProgress {
@@ -105,13 +104,15 @@ pub async fn start_bucket_index(
                         .unwrap_or(0),
                     status: "failed".to_string(),
                     done: true,
-                    error: Some(err.to_string()),
+                    error: Some("Indexing failed".to_string()),
                 },
             );
         }
 
         app_clone.state::<TransferManager>().remove(&job_id_clone);
-        app_clone.state::<BucketIndexManager>().finish(&job_id_clone);
+        app_clone
+            .state::<BucketIndexManager>()
+            .finish(&job_id_clone);
     });
 
     Ok(job_id)
@@ -122,10 +123,10 @@ pub async fn pause_bucket_index(
     app: AppHandle,
     connection_id: String,
     bucket: String,
-) -> Result<(), String> {
+) -> Result<(), PakerError> {
     let job_id = bucket_index_job_id(&connection_id, &bucket);
     if !app.state::<BucketIndexManager>().is_running(&job_id) {
-        return Err("no running bucket index job".to_string());
+        return Err(PakerError::IndexNotReady);
     }
     app.state::<TransferManager>().pause(&job_id);
 
@@ -143,10 +144,10 @@ pub async fn resume_bucket_index(
     app: AppHandle,
     connection_id: String,
     bucket: String,
-) -> Result<(), String> {
+) -> Result<(), PakerError> {
     let job_id = bucket_index_job_id(&connection_id, &bucket);
     if !app.state::<BucketIndexManager>().is_running(&job_id) {
-        return Err("no running bucket index job".to_string());
+        return Err(PakerError::IndexNotReady);
     }
     app.state::<TransferManager>().resume(&job_id);
 
@@ -164,7 +165,7 @@ pub async fn cancel_bucket_index(
     app: AppHandle,
     connection_id: String,
     bucket: String,
-) -> Result<(), String> {
+) -> Result<(), PakerError> {
     let job_id = bucket_index_job_id(&connection_id, &bucket);
     app.state::<TransferManager>().cancel(&job_id);
     Ok(())
@@ -178,7 +179,7 @@ pub async fn search_bucket_index(
     query: String,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> Result<Vec<IndexedObject>, String> {
+) -> Result<Vec<IndexedObject>, PakerError> {
     let query = query.trim();
     if query.is_empty() {
         return Ok(Vec::new());
@@ -193,7 +194,7 @@ pub async fn search_bucket_index(
             limit.unwrap_or(500),
             offset.unwrap_or(0),
         )
-        .map_err(map_err)
+        .map_err(into_ipc_error)
 }
 
 #[tauri::command]
@@ -202,26 +203,39 @@ pub async fn export_bucket_index_csv(
     connection_id: String,
     bucket: String,
     save_path: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, PakerError> {
     let cache = app.state::<ObjectCacheManager>();
     let csv = cache
         .export_bucket_index_csv(&connection_id, &bucket)
-        .map_err(map_err)?;
+        .map_err(into_ipc_error)?;
 
+    let scope = app.state::<LocalFsScope>();
     let dest: PathBuf = match save_path.filter(|p| !p.is_empty()) {
-        Some(path) => PathBuf::from(path),
-        None => rfd::FileDialog::new()
-            .set_title("Save bucket index CSV")
-            .set_file_name(format!("{bucket}-index.csv"))
-            .add_filter("CSV", &["csv"])
-            .save_file()
-            .ok_or_else(|| "export cancelled: no file selected".to_string())?,
+        Some(path) => {
+            let dest = PathBuf::from(path);
+            scope.validate_export_path(&dest)?;
+            dest
+        }
+        None => {
+            let picked = rfd::FileDialog::new()
+                .set_title("Save bucket index CSV")
+                .set_file_name(format!("{bucket}-index.csv"))
+                .add_filter("CSV", &["csv"])
+                .save_file()
+                .ok_or_else(|| {
+                    PakerError::InvalidInput("Export cancelled: no file selected".to_string())
+                })?;
+            if let Some(parent) = picked.parent() {
+                scope.register_picked_folder(parent);
+            }
+            picked
+        }
     };
 
     if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).map_err(map_err)?;
+        fs::create_dir_all(parent).map_err(|_| PakerError::PathNotAllowed)?;
     }
 
-    fs::write(&dest, csv).map_err(map_err)?;
+    crate::storage::paths::write_private_file(&dest, csv.as_bytes()).map_err(into_ipc_error)?;
     Ok(dest.to_string_lossy().into_owned())
 }

@@ -11,11 +11,15 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "lint": "npm run typecheck && npm run lint:rust",
+    "test:all": "npm test && npm run test:rust",
     "build:windows-portable": "tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc --bundles nsis && bash scripts/package-windows-portable.sh",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
     "version:sync": "node scripts/sync-version.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.16",
@@ -47,10 +51,13 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@testing-library/react": "^16.3.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "jsdom": "^26.1.0",
     "typescript": "~6.0.3",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^3.2.4"
   }
 }

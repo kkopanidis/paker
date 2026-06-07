@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Main window: core:default (events/listen, path helpers, read-only window/webview metadata) + opener:default (https/http/mailto/tel URLs, reveal-in-finder). No fs, dialog, http, or shell plugins.",
   "windows": ["main"],
   "permissions": [
     "core:default",

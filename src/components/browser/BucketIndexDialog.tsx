@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { exportBucketIndexCsv } from "@/lib/tauri";
+import { exportBucketIndexCsv, formatIpcError } from "@/lib/tauri";
 import type { useBucketIndex } from "@/hooks/useBucketIndex";
 
 interface BucketIndexDialogProps {
@@ -65,11 +65,11 @@ export function BucketIndexDialog({
     if (!connectionId || !bucket) return;
     setExporting(true);
     try {
-      const path = await exportBucketIndexCsv(connectionId, bucket);
-      toast.success("Index exported", { description: path });
+      await exportBucketIndexCsv(connectionId, bucket);
+      toast.success("Index exported", { description: "CSV saved successfully" });
     } catch (err) {
       toast.error("Export failed", {
-        description: err instanceof Error ? err.message : String(err),
+        description: formatIpcError(err),
       });
     } finally {
       setExporting(false);

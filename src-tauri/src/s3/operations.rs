@@ -1,14 +1,15 @@
+use crate::error::{into_ipc_error, map_s3_sdk_error, PakerError};
 use anyhow::{anyhow, Context, Result};
 use aws_sdk_s3::error::SdkError;
 use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart, ObjectIdentifier};
 use aws_sdk_s3::Client;
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
@@ -16,7 +17,9 @@ use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use crate::path_safety::local_dest_path as safe_local_dest_path;
 use crate::storage::bucket_index::{BucketIndexMeta, BucketIndexProgress, IndexedObject};
+use crate::storage::paths::set_private_file_permissions;
 use crate::storage::ObjectCacheManager;
 use crate::transfer::TransferManager;
 
@@ -188,7 +191,15 @@ async fn wait_if_paused(
         return false;
     }
 
-    emit_progress(app, transfer_id, file_name, direction, bytes, total, "paused");
+    emit_progress(
+        app,
+        transfer_id,
+        file_name,
+        direction,
+        bytes,
+        total,
+        "paused",
+    );
 
     loop {
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -209,12 +220,12 @@ async fn wait_if_paused(
     false
 }
 
-pub async fn list_buckets(client: &Client) -> Result<Vec<BucketInfo>> {
+pub async fn list_buckets(client: &Client) -> Result<Vec<BucketInfo>, PakerError> {
     let response = client
         .list_buckets()
         .send()
         .await
-        .context("list_buckets failed")?;
+        .map_err(map_s3_sdk_error)?;
 
     Ok(response
         .buckets()
@@ -233,29 +244,33 @@ pub async fn presign_get_object(
     bucket: &str,
     key: &str,
     expires_secs: u64,
-) -> Result<String> {
+) -> Result<String, PakerError> {
     let presigned = client
         .get_object()
         .bucket(bucket)
         .key(key)
         .presigned(
             PresigningConfig::expires_in(Duration::from_secs(expires_secs))
-                .context("invalid presign expiry")?,
+                .map_err(|_| PakerError::InvalidInput("Invalid presign expiry".to_string()))?,
         )
         .await
-        .context("presign_get_object failed")?;
+        .map_err(map_s3_sdk_error)?;
 
     Ok(presigned.uri().to_string())
 }
 
-pub async fn head_object(client: &Client, bucket: &str, key: &str) -> Result<ObjectHeadResult> {
+pub async fn head_object(
+    client: &Client,
+    bucket: &str,
+    key: &str,
+) -> Result<ObjectHeadResult, PakerError> {
     let response = client
         .head_object()
         .bucket(bucket)
         .key(key)
         .send()
         .await
-        .context("head_object failed")?;
+        .map_err(map_s3_sdk_error)?;
 
     let metadata = response
         .metadata()
@@ -280,27 +295,25 @@ pub async fn head_object(client: &Client, bucket: &str, key: &str) -> Result<Obj
     })
 }
 
-pub async fn object_exists(client: &Client, bucket: &str, key: &str) -> Result<bool> {
+pub async fn object_exists(client: &Client, bucket: &str, key: &str) -> Result<bool, PakerError> {
     match client.head_object().bucket(bucket).key(key).send().await {
         Ok(_) => Ok(true),
         Err(SdkError::ServiceError(err)) if err.err().is_not_found() => Ok(false),
-        Err(err) => Err(anyhow!("head_object failed: {err}")),
+        Err(err) => Err(map_s3_sdk_error(err)),
     }
 }
 
-pub async fn verify_bucket_access(client: &Client, bucket: &str) -> Result<()> {
+pub async fn verify_bucket_access(client: &Client, bucket: &str) -> Result<(), PakerError> {
     match client.head_bucket().bucket(bucket).send().await {
         Ok(_) => return Ok(()),
-        Err(head_err) => {
+        Err(_) => {
             client
                 .list_objects_v2()
                 .bucket(bucket)
                 .max_keys(1)
                 .send()
                 .await
-                .with_context(|| {
-                    format!("bucket access check failed for '{bucket}': {head_err}")
-                })?;
+                .map_err(map_s3_sdk_error)?;
         }
     }
     Ok(())
@@ -480,10 +493,7 @@ pub async fn index_bucket_flat(
             return Ok(());
         }
 
-        let mut request = client
-            .list_objects_v2()
-            .bucket(bucket)
-            .max_keys(1000);
+        let mut request = client.list_objects_v2().bucket(bucket).max_keys(1000);
 
         if let Some(token) = continuation_token.as_deref() {
             request = request.continuation_token(token);
@@ -598,7 +608,7 @@ pub async fn calculate_prefix_size(
     client: &Client,
     bucket: &str,
     prefix: &str,
-) -> Result<PrefixSizeResult> {
+) -> Result<PrefixSizeResult, PakerError> {
     let normalized = if prefix.is_empty() {
         String::new()
     } else {
@@ -610,10 +620,7 @@ pub async fn calculate_prefix_size(
     let mut total_bytes: u64 = 0;
 
     loop {
-        let mut request = client
-            .list_objects_v2()
-            .bucket(bucket)
-            .max_keys(1000);
+        let mut request = client.list_objects_v2().bucket(bucket).max_keys(1000);
 
         if !normalized.is_empty() {
             request = request.prefix(&normalized);
@@ -623,7 +630,7 @@ pub async fn calculate_prefix_size(
             request = request.continuation_token(token);
         }
 
-        let response = request.send().await.context("calculate_prefix_size failed")?;
+        let response = request.send().await.map_err(map_s3_sdk_error)?;
 
         for object in response.contents() {
             let Some(key) = object.key() else {
@@ -652,9 +659,7 @@ pub async fn calculate_prefix_size(
             break;
         }
 
-        continuation_token = response
-            .next_continuation_token()
-            .map(|s| s.to_string());
+        continuation_token = response.next_continuation_token().map(|s| s.to_string());
 
         if continuation_token.is_none() {
             break;
@@ -689,7 +694,7 @@ pub async fn get_bucket_metadata(
     endpoint: Option<String>,
     region: Option<String>,
     force_path_style: Option<bool>,
-) -> Result<BucketMetadata> {
+) -> Result<BucketMetadata, PakerError> {
     let location = match client.get_bucket_location().bucket(bucket).send().await {
         Ok(response) => {
             let constraint = response
@@ -706,9 +711,7 @@ pub async fn get_bucket_metadata(
     };
 
     let versioning = match client.get_bucket_versioning().bucket(bucket).send().await {
-        Ok(response) => response
-            .status()
-            .map(|status| status.as_str().to_string()),
+        Ok(response) => response.status().map(|status| status.as_str().to_string()),
         Err(_) => None,
     };
 
@@ -729,7 +732,7 @@ pub async fn list_objects_v2(
     bucket: &str,
     prefix: Option<&str>,
     continuation_token: Option<&str>,
-) -> Result<ListObjectsResult> {
+) -> Result<ListObjectsResult, PakerError> {
     let mut request = client.list_objects_v2().bucket(bucket).delimiter("/");
 
     if let Some(prefix) = prefix {
@@ -744,7 +747,7 @@ pub async fn list_objects_v2(
         }
     }
 
-    let response = request.send().await.context("list_objects_v2 failed")?;
+    let response = request.send().await.map_err(map_s3_sdk_error)?;
 
     let objects = response
         .contents()
@@ -777,12 +780,7 @@ pub async fn list_objects_v2(
     })
 }
 
-async fn put_object_single(
-    client: &Client,
-    bucket: &str,
-    key: &str,
-    body: Vec<u8>,
-) -> Result<()> {
+async fn put_object_single(client: &Client, bucket: &str, key: &str, body: Vec<u8>) -> Result<()> {
     client
         .put_object()
         .bucket(bucket)
@@ -1012,15 +1010,7 @@ pub async fn put_object_file(
         }
         Err(err) if err.to_string().contains("transfer cancelled") => Err(err),
         Err(err) => {
-            emit_progress(
-                app,
-                &transfer_id,
-                &file_name,
-                "upload",
-                0,
-                total,
-                "failed",
-            );
+            emit_progress(app, &transfer_id, &file_name, "upload", 0, total, "failed");
             Err(err)
         }
     }
@@ -1042,15 +1032,7 @@ pub async fn get_object_to_path(
         .to_string();
     let transfer_id = transfer_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    emit_progress(
-        app,
-        &transfer_id,
-        &file_name,
-        "download",
-        0,
-        0,
-        "started",
-    );
+    emit_progress(app, &transfer_id, &file_name, "download", 0, 0, "started");
 
     let response = client
         .get_object()
@@ -1134,7 +1116,9 @@ pub async fn get_object_to_path(
         );
     }
 
-    file.flush().await.context("failed to flush destination file")?;
+    file.flush()
+        .await
+        .context("failed to flush destination file")?;
 
     emit_progress(
         app,
@@ -1149,7 +1133,11 @@ pub async fn get_object_to_path(
     Ok(())
 }
 
-pub async fn delete_objects_batch(client: &Client, bucket: &str, keys: &[String]) -> Result<()> {
+pub async fn delete_objects_batch(
+    client: &Client,
+    bucket: &str,
+    keys: &[String],
+) -> Result<(), PakerError> {
     if keys.is_empty() {
         return Ok(());
     }
@@ -1171,11 +1159,11 @@ pub async fn delete_objects_batch(client: &Client, bucket: &str, keys: &[String]
             aws_sdk_s3::types::Delete::builder()
                 .set_objects(Some(objects))
                 .build()
-                .context("failed to build delete request")?,
+                .map_err(|_| PakerError::Internal)?,
         )
         .send()
         .await
-        .context("delete_objects failed")?;
+        .map_err(map_s3_sdk_error)?;
 
     Ok(())
 }
@@ -1185,7 +1173,11 @@ pub async fn rename_object(
     bucket: &str,
     old_key: &str,
     new_key: &str,
-) -> Result<()> {
+) -> Result<(), PakerError> {
+    crate::path_safety::validate_s3_object_key(old_key)
+        .map_err(|_| PakerError::InvalidInput("Invalid source object key".to_string()))?;
+    crate::path_safety::validate_s3_object_key(new_key)
+        .map_err(|_| PakerError::InvalidInput("Invalid destination object key".to_string()))?;
     let copy_source = format!("{bucket}/{old_key}");
     client
         .copy_object()
@@ -1194,7 +1186,7 @@ pub async fn rename_object(
         .copy_source(copy_source)
         .send()
         .await
-        .context("copy_object failed")?;
+        .map_err(map_s3_sdk_error)?;
 
     delete_objects_batch(client, bucket, &[old_key.to_string()]).await
 }
@@ -1204,7 +1196,13 @@ pub async fn create_folder(
     bucket: &str,
     prefix: &str,
     folder_name: &str,
-) -> Result<()> {
+) -> Result<(), PakerError> {
+    crate::path_safety::validate_s3_key_segment(folder_name)
+        .map_err(|_| PakerError::InvalidInput("Invalid folder name".to_string()))?;
+    if !prefix.is_empty() {
+        crate::path_safety::validate_s3_object_key(prefix)
+            .map_err(|_| PakerError::InvalidInput("Invalid prefix".to_string()))?;
+    }
     let mut key = prefix.to_string();
     if !key.is_empty() && !key.ends_with('/') {
         key.push('/');
@@ -1221,12 +1219,19 @@ pub async fn create_folder(
         .body(ByteStream::from_static(b""))
         .send()
         .await
-        .context("create_folder put_object failed")?;
+        .map_err(map_s3_sdk_error)?;
 
     Ok(())
 }
 
 pub fn join_prefix(prefix: &str, file_name: &str) -> String {
+    let base_name = Path::new(file_name)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(file_name);
+    if let Err(err) = crate::path_safety::validate_s3_key_segment(base_name) {
+        tracing::warn!(error = %err, "invalid upload file name for S3 key");
+    }
     let mut key = prefix.to_string();
     if !key.is_empty() && !key.ends_with('/') {
         key.push('/');
@@ -1240,8 +1245,8 @@ pub fn join_prefix(prefix: &str, file_name: &str) -> String {
     key
 }
 
-pub fn local_dest_path(save_dir: &Path, key: &str) -> PathBuf {
-    save_dir.join(key)
+pub fn local_dest_path(save_dir: &Path, key: &str) -> Result<PathBuf> {
+    safe_local_dest_path(save_dir, key)
 }
 
 fn preview_etag_sidecar(dest: &Path) -> PathBuf {
@@ -1297,9 +1302,11 @@ pub async fn preview_object_to_cache(
     }
 
     get_object_to_path(app, client, bucket, key, &dest, None, None).await?;
+    set_private_file_permissions(&dest)?;
 
     if let Some(etag) = &head.etag {
-        let _ = fs::write(&etag_sidecar, etag).await;
+        fs::write(&etag_sidecar, etag).await?;
+        set_private_file_permissions(&etag_sidecar)?;
     }
 
     Ok(dest.to_string_lossy().into_owned())
@@ -1350,8 +1357,10 @@ pub async fn move_objects_batch(
     src_bucket: &str,
     dest_bucket: &str,
     items: &[CopyItem],
-) -> Result<()> {
-    copy_objects_batch(app, client, src_bucket, dest_bucket, items).await?;
+) -> Result<(), PakerError> {
+    copy_objects_batch(app, client, src_bucket, dest_bucket, items)
+        .await
+        .map_err(into_ipc_error)?;
     let src_keys: Vec<String> = items.iter().map(|i| i.src_key.clone()).collect();
     delete_objects_batch(client, src_bucket, &src_keys).await
 }

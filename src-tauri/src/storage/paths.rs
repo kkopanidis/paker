@@ -14,9 +14,7 @@ pub fn is_portable_mode() -> bool {
         return true;
     }
 
-    portable_marker_path()
-        .map(|p| p.is_file())
-        .unwrap_or(false)
+    portable_marker_path().map(|p| p.is_file()).unwrap_or(false)
 }
 
 fn portable_marker_path() -> Option<PathBuf> {
@@ -27,9 +25,7 @@ fn portable_marker_path() -> Option<PathBuf> {
 
 fn portable_data_dir() -> Result<PathBuf> {
     let exe = env::current_exe().context("failed to resolve current executable")?;
-    let exe_dir = exe
-        .parent()
-        .context("executable has no parent directory")?;
+    let exe_dir = exe.parent().context("executable has no parent directory")?;
     Ok(exe_dir.join("data"))
 }
 
@@ -60,6 +56,10 @@ pub fn ui_state_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("ui_state.json"))
 }
 
+pub fn update_check_cache_path(app: &AppHandle) -> Result<PathBuf> {
+    Ok(data_dir(app)?.join("update_check_cache.json"))
+}
+
 pub fn index_db_path(app: &AppHandle) -> Result<PathBuf> {
     let path = data_dir(app)?.join("index").join("index.db");
     ensure_parent(&path)?;
@@ -79,4 +79,40 @@ pub fn ensure_parent(path: &Path) -> Result<()> {
             .with_context(|| format!("failed to create directory {}", parent.display()))?;
     }
     Ok(())
+}
+
+/// Write a file with owner-only permissions on Unix (0o600).
+pub fn write_private_file(path: &Path, data: &[u8]) -> Result<()> {
+    fs::write(path, data).with_context(|| format!("failed to write {}", path.display()))?;
+    set_private_file_permissions(path)?;
+    Ok(())
+}
+
+pub fn set_private_file_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = fs::Permissions::from_mode(0o600);
+        fs::set_permissions(path, perms)
+            .with_context(|| format!("failed to set permissions on {}", path.display()))?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn write_private_file_sets_owner_only_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("secret.txt");
+        write_private_file(&path, b"test data").expect("write_private_file");
+
+        let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
 }

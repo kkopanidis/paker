@@ -3,3 +3,66 @@ pub mod connections;
 pub mod local_fs;
 pub mod s3_ops;
 pub mod ui_state;
+pub mod update;
+
+/// Register all Tauri IPC command handlers (split by domain for maintainability).
+macro_rules! app_commands {
+    () => {
+        tauri::generate_handler![
+            $crate::commands::connections::list_connections,
+            $crate::commands::connections::get_connection,
+            $crate::commands::connections::save_connection,
+            $crate::commands::connections::delete_connection,
+            $crate::commands::connections::test_connection,
+            $crate::commands::s3_ops::list_buckets,
+            $crate::commands::s3_ops::verify_bucket,
+            $crate::commands::s3_ops::read_list_cache,
+            $crate::commands::s3_ops::list_objects,
+            $crate::commands::s3_ops::calculate_prefix_size,
+            $crate::commands::s3_ops::get_bucket_metadata,
+            $crate::commands::s3_ops::pick_upload_files,
+            $crate::commands::s3_ops::upload_files,
+            $crate::commands::s3_ops::download_files,
+            $crate::commands::s3_ops::delete_objects,
+            $crate::commands::s3_ops::rename_object,
+            $crate::commands::s3_ops::create_folder,
+            $crate::commands::s3_ops::head_object,
+            $crate::commands::s3_ops::check_objects_exist,
+            $crate::commands::s3_ops::copy_objects,
+            $crate::commands::s3_ops::move_objects,
+            $crate::commands::s3_ops::cancel_transfer,
+            $crate::commands::s3_ops::pause_transfer,
+            $crate::commands::s3_ops::resume_transfer,
+            $crate::commands::local_fs::list_local_dir,
+            $crate::commands::local_fs::get_home_dir,
+            $crate::commands::local_fs::pick_local_folder,
+            $crate::commands::local_fs::get_parent_path,
+            $crate::commands::local_fs::open_preview_file,
+            $crate::commands::ui_state::get_last_local_dir,
+            $crate::commands::ui_state::set_last_local_dir,
+            $crate::commands::ui_state::get_transfer_settings,
+            $crate::commands::ui_state::get_full_ui_state,
+            $crate::commands::ui_state::get_connection_nav,
+            $crate::commands::ui_state::set_connection_nav,
+            $crate::commands::ui_state::get_bookmarks,
+            $crate::commands::ui_state::add_bookmark,
+            $crate::commands::ui_state::remove_bookmark,
+            $crate::commands::ui_state::get_ui_preferences,
+            $crate::commands::ui_state::set_ui_preferences,
+            $crate::commands::ui_state::get_panel_layout,
+            $crate::commands::ui_state::set_panel_layout,
+            $crate::commands::s3_ops::presign_object,
+            $crate::commands::s3_ops::preview_object_to_cache,
+            $crate::commands::bucket_index::get_bucket_index_status,
+            $crate::commands::bucket_index::start_bucket_index,
+            $crate::commands::bucket_index::pause_bucket_index,
+            $crate::commands::bucket_index::resume_bucket_index,
+            $crate::commands::bucket_index::cancel_bucket_index,
+            $crate::commands::bucket_index::search_bucket_index,
+            $crate::commands::bucket_index::export_bucket_index_csv,
+            $crate::commands::update::check_for_update,
+        ]
+    };
+}
+
+pub(crate) use app_commands;

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { Group, Panel, Separator, usePanelRef, type Layout } from "react-resizable-panels";
 import { BookmarkDialog } from "@/components/browser/BookmarkDialog";
 import { Breadcrumb } from "@/components/browser/Breadcrumb";
@@ -44,8 +43,10 @@ import { useTransfers } from "@/hooks/useTransfers";
 import { useUiState } from "@/hooks/useUiState";
 import {
   addBookmark,
+  formatIpcError,
   getConnectionNav,
   headObject,
+  openPreviewFile,
   previewObjectToCache,
   presignObject,
   removeBookmark,
@@ -56,6 +57,7 @@ import type { ObjectHeadResponse, PrefixSizeResult, S3Object } from "@/types/s3"
 import type { PrefixBookmark } from "@/types/ui";
 import { LocalPanelToggle } from "./LocalPanelToggle";
 import { ThemeToggle } from "./ThemeToggle";
+import { UpdateBanner } from "./UpdateBanner";
 
 export function AppShell() {
   const connections = useConnections();
@@ -388,7 +390,7 @@ export function AppShell() {
       await copyToClipboard(url, "Presigned URL copied");
     } catch (error) {
       toast.error("Failed to generate presigned URL", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     } finally {
       setPresignedLoading(false);
@@ -398,10 +400,10 @@ export function AppShell() {
   const handleOpenExternally = async () => {
     if (!previewPath) return;
     try {
-      await openPath(previewPath);
+      await openPreviewFile(previewPath);
     } catch (error) {
       toast.error("Failed to open file", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     }
   };
@@ -673,6 +675,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen flex-col">
+      <UpdateBanner enabled={ui.ready && ui.preferences.checkForUpdates} />
       <header className="flex h-12 items-center justify-between border-b px-4">
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-bold text-primary-foreground">

@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getBucketMetadata } from "@/lib/tauri";
+import { formatIpcError, getBucketMetadata } from "@/lib/tauri";
 import { formatBytes, formatDate } from "@/lib/utils";
 import type { BucketMetadata, PrefixSizeResult } from "@/types/s3";
 
@@ -64,7 +64,7 @@ export function BucketPropertiesDialog({
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(formatIpcError(err));
         }
       })
       .finally(() => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   deleteConnection as deleteConnectionApi,
+  formatIpcError,
   listConnections,
   saveConnection,
   testConnection,
@@ -25,7 +26,7 @@ export function useConnections() {
       });
     } catch (error) {
       toast.error("Failed to load connections", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     } finally {
       setLoading(false);
@@ -38,13 +39,20 @@ export function useConnections() {
 
   const save = useCallback(
     async (input: S3ConnectionInput, id?: string, options?: { quiet?: boolean }) => {
-      const saved = await saveConnection({ ...input, id });
-      await refresh();
-      setSelectedId(saved.id);
-      if (!options?.quiet) {
-        toast.success(id ? "Connection updated" : "Connection created");
+      try {
+        const saved = await saveConnection({ ...input, id });
+        await refresh();
+        setSelectedId(saved.id);
+        if (!options?.quiet) {
+          toast.success(id ? "Connection updated" : "Connection created");
+        }
+        return saved;
+      } catch (error) {
+        toast.error(id ? "Failed to update connection" : "Failed to create connection", {
+          description: formatIpcError(error),
+        });
+        throw error;
       }
-      return saved;
     },
     [refresh]
   );
@@ -67,7 +75,7 @@ export function useConnections() {
       });
     } catch (error) {
       toast.error("Connection test failed", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
       throw error;
     } finally {
