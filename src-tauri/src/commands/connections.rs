@@ -32,9 +32,7 @@ pub async fn save_connection(
 
     if let Some(secret) = secret {
         if !secret.is_empty() {
-            let token = session_token
-                .as_deref()
-                .filter(|t| !t.is_empty());
+            let token = session_token.as_deref().filter(|t| !t.is_empty());
             set_secrets(&app, &profile.id, &secret, token).map_err(into_ipc_error)?;
         }
     }

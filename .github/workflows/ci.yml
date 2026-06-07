@@ -47,7 +47,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm audit --audit-level=high
+      # Dev-only tools (e.g. vitest UI server) are omitted; audit shipped runtime deps.
+      - run: npm audit --audit-level=high --omit=dev
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit --locked
       - run: cargo audit --manifest-path src-tauri/Cargo.toml

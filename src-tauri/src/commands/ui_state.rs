@@ -1,9 +1,7 @@
 use crate::commands::local_fs::LocalFsScope;
 use crate::error::{into_ipc_error, PakerError};
 use crate::storage::ui_state as state;
-use crate::storage::ui_state::{
-    ConnectionNav, FullUiState, PrefixBookmark, UiPreferences,
-};
+use crate::storage::ui_state::{ConnectionNav, FullUiState, PrefixBookmark, UiPreferences};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -16,10 +14,7 @@ pub struct TransferSettings {
 }
 
 #[tauri::command]
-pub async fn get_last_local_dir(
-    app: AppHandle,
-    connection_id: String,
-) -> Option<String> {
+pub async fn get_last_local_dir(app: AppHandle, connection_id: String) -> Option<String> {
     state::get_last_local_dir(&app, &connection_id)
 }
 
@@ -47,10 +42,7 @@ pub async fn get_full_ui_state(app: AppHandle) -> Result<FullUiState, PakerError
 }
 
 #[tauri::command]
-pub async fn get_connection_nav(
-    app: AppHandle,
-    connection_id: String,
-) -> Option<ConnectionNav> {
+pub async fn get_connection_nav(app: AppHandle, connection_id: String) -> Option<ConnectionNav> {
     state::get_connection_nav(&app, &connection_id)
 }
 
@@ -64,10 +56,7 @@ pub async fn set_connection_nav(
 }
 
 #[tauri::command]
-pub async fn get_bookmarks(
-    app: AppHandle,
-    connection_id: String,
-) -> Vec<PrefixBookmark> {
+pub async fn get_bookmarks(app: AppHandle, connection_id: String) -> Vec<PrefixBookmark> {
     state::get_bookmarks(&app, &connection_id)
 }
 

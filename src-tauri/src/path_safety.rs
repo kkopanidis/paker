@@ -12,7 +12,9 @@ pub fn sanitize_object_key_for_local_path(save_dir: &Path, key: &str) -> Result<
     }
 
     if has_windows_drive_prefix(key) {
-        return Err(anyhow!("object key must not contain a Windows drive prefix"));
+        return Err(anyhow!(
+            "object key must not contain a Windows drive prefix"
+        ));
     }
 
     let relative = normalize_object_key_components(key)?;
@@ -186,7 +188,8 @@ mod tests {
 
     fn test_save_dir(name: &str) -> PathBuf {
         let id = TEST_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!("paker-path-safety-{name}-{id}-{}", Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("paker-path-safety-{name}-{id}-{}", Uuid::new_v4()));
         fs::create_dir_all(&dir).expect("create test dir");
         dir
     }
@@ -194,21 +197,24 @@ mod tests {
     #[test]
     fn allows_nested_relative_key() {
         let dir = test_save_dir("nested");
-        let dest = sanitize_object_key_for_local_path(&dir, "photos/2024/cat.jpg").expect("valid key");
+        let dest =
+            sanitize_object_key_for_local_path(&dir, "photos/2024/cat.jpg").expect("valid key");
         assert_eq!(dest, dir.join("photos/2024/cat.jpg"));
     }
 
     #[test]
     fn normalizes_backslashes() {
         let dir = test_save_dir("slashes");
-        let dest = sanitize_object_key_for_local_path(&dir, "photos\\2024\\cat.jpg").expect("valid");
+        let dest =
+            sanitize_object_key_for_local_path(&dir, "photos\\2024\\cat.jpg").expect("valid");
         assert_eq!(dest, dir.join("photos/2024/cat.jpg"));
     }
 
     #[test]
     fn rejects_parent_dir_segments() {
         let dir = test_save_dir("parent-segments");
-        let err = sanitize_object_key_for_local_path(&dir, "foo/../../secret.txt").expect_err("traversal");
+        let err = sanitize_object_key_for_local_path(&dir, "foo/../../secret.txt")
+            .expect_err("traversal");
         assert!(err.to_string().contains("path traversal"));
     }
 
@@ -229,7 +235,8 @@ mod tests {
     #[test]
     fn rejects_windows_drive_prefix() {
         let dir = test_save_dir("drive");
-        let err = sanitize_object_key_for_local_path(&dir, "C:\\Windows\\win.ini").expect_err("drive");
+        let err =
+            sanitize_object_key_for_local_path(&dir, "C:\\Windows\\win.ini").expect_err("drive");
         assert!(err.to_string().contains("Windows drive"));
     }
 
@@ -258,8 +265,8 @@ mod tests {
         {
             let link = dir.join("escape");
             std::os::unix::fs::symlink(&outside, &link).expect("symlink");
-            let err =
-                sanitize_object_key_for_local_path(&dir, "escape/secret.txt").expect_err("symlink escape");
+            let err = sanitize_object_key_for_local_path(&dir, "escape/secret.txt")
+                .expect_err("symlink escape");
             assert!(err.to_string().contains("escapes save directory"));
         }
 

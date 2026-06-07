@@ -14,9 +14,7 @@ pub fn is_portable_mode() -> bool {
         return true;
     }
 
-    portable_marker_path()
-        .map(|p| p.is_file())
-        .unwrap_or(false)
+    portable_marker_path().map(|p| p.is_file()).unwrap_or(false)
 }
 
 fn portable_marker_path() -> Option<PathBuf> {
@@ -27,9 +25,7 @@ fn portable_marker_path() -> Option<PathBuf> {
 
 fn portable_data_dir() -> Result<PathBuf> {
     let exe = env::current_exe().context("failed to resolve current executable")?;
-    let exe_dir = exe
-        .parent()
-        .context("executable has no parent directory")?;
+    let exe_dir = exe.parent().context("executable has no parent directory")?;
     Ok(exe_dir.join("data"))
 }
 
@@ -116,11 +112,7 @@ mod tests {
         let path = dir.path().join("secret.txt");
         write_private_file(&path, b"test data").expect("write_private_file");
 
-        let mode = fs::metadata(&path)
-            .expect("metadata")
-            .permissions()
-            .mode()
-            & 0o777;
+        let mode = fs::metadata(&path).expect("metadata").permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
 }

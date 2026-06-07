@@ -159,8 +159,7 @@ impl ObjectCacheManager {
             .context("failed to upsert indexed object")?;
         }
 
-        tx.commit()
-            .context("failed to commit bucket index batch")?;
+        tx.commit().context("failed to commit bucket index batch")?;
         Ok(())
     }
 
@@ -199,11 +198,7 @@ impl ObjectCacheManager {
             .context("failed to read bucket index search results")
     }
 
-    pub fn export_bucket_index_csv(
-        &self,
-        connection_id: &str,
-        bucket: &str,
-    ) -> Result<String> {
+    pub fn export_bucket_index_csv(&self, connection_id: &str, bucket: &str) -> Result<String> {
         let conn = self.db();
         let mut stmt = conn.prepare(
             "SELECT key, size, last_modified, etag, storage_class

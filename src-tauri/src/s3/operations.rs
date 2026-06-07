@@ -5,11 +5,11 @@ use aws_sdk_s3::presigning::PresigningConfig;
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart, ObjectIdentifier};
 use aws_sdk_s3::Client;
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
@@ -191,7 +191,15 @@ async fn wait_if_paused(
         return false;
     }
 
-    emit_progress(app, transfer_id, file_name, direction, bytes, total, "paused");
+    emit_progress(
+        app,
+        transfer_id,
+        file_name,
+        direction,
+        bytes,
+        total,
+        "paused",
+    );
 
     loop {
         tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
@@ -485,10 +493,7 @@ pub async fn index_bucket_flat(
             return Ok(());
         }
 
-        let mut request = client
-            .list_objects_v2()
-            .bucket(bucket)
-            .max_keys(1000);
+        let mut request = client.list_objects_v2().bucket(bucket).max_keys(1000);
 
         if let Some(token) = continuation_token.as_deref() {
             request = request.continuation_token(token);
@@ -615,10 +620,7 @@ pub async fn calculate_prefix_size(
     let mut total_bytes: u64 = 0;
 
     loop {
-        let mut request = client
-            .list_objects_v2()
-            .bucket(bucket)
-            .max_keys(1000);
+        let mut request = client.list_objects_v2().bucket(bucket).max_keys(1000);
 
         if !normalized.is_empty() {
             request = request.prefix(&normalized);
@@ -657,9 +659,7 @@ pub async fn calculate_prefix_size(
             break;
         }
 
-        continuation_token = response
-            .next_continuation_token()
-            .map(|s| s.to_string());
+        continuation_token = response.next_continuation_token().map(|s| s.to_string());
 
         if continuation_token.is_none() {
             break;
@@ -711,9 +711,7 @@ pub async fn get_bucket_metadata(
     };
 
     let versioning = match client.get_bucket_versioning().bucket(bucket).send().await {
-        Ok(response) => response
-            .status()
-            .map(|status| status.as_str().to_string()),
+        Ok(response) => response.status().map(|status| status.as_str().to_string()),
         Err(_) => None,
     };
 
@@ -782,12 +780,7 @@ pub async fn list_objects_v2(
     })
 }
 
-async fn put_object_single(
-    client: &Client,
-    bucket: &str,
-    key: &str,
-    body: Vec<u8>,
-) -> Result<()> {
+async fn put_object_single(client: &Client, bucket: &str, key: &str, body: Vec<u8>) -> Result<()> {
     client
         .put_object()
         .bucket(bucket)
@@ -1017,15 +1010,7 @@ pub async fn put_object_file(
         }
         Err(err) if err.to_string().contains("transfer cancelled") => Err(err),
         Err(err) => {
-            emit_progress(
-                app,
-                &transfer_id,
-                &file_name,
-                "upload",
-                0,
-                total,
-                "failed",
-            );
+            emit_progress(app, &transfer_id, &file_name, "upload", 0, total, "failed");
             Err(err)
         }
     }
@@ -1047,15 +1032,7 @@ pub async fn get_object_to_path(
         .to_string();
     let transfer_id = transfer_id.unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    emit_progress(
-        app,
-        &transfer_id,
-        &file_name,
-        "download",
-        0,
-        0,
-        "started",
-    );
+    emit_progress(app, &transfer_id, &file_name, "download", 0, 0, "started");
 
     let response = client
         .get_object()
@@ -1139,7 +1116,9 @@ pub async fn get_object_to_path(
         );
     }
 
-    file.flush().await.context("failed to flush destination file")?;
+    file.flush()
+        .await
+        .context("failed to flush destination file")?;
 
     emit_progress(
         app,
@@ -1195,12 +1174,10 @@ pub async fn rename_object(
     old_key: &str,
     new_key: &str,
 ) -> Result<(), PakerError> {
-    crate::path_safety::validate_s3_object_key(old_key).map_err(|_| {
-        PakerError::InvalidInput("Invalid source object key".to_string())
-    })?;
-    crate::path_safety::validate_s3_object_key(new_key).map_err(|_| {
-        PakerError::InvalidInput("Invalid destination object key".to_string())
-    })?;
+    crate::path_safety::validate_s3_object_key(old_key)
+        .map_err(|_| PakerError::InvalidInput("Invalid source object key".to_string()))?;
+    crate::path_safety::validate_s3_object_key(new_key)
+        .map_err(|_| PakerError::InvalidInput("Invalid destination object key".to_string()))?;
     let copy_source = format!("{bucket}/{old_key}");
     client
         .copy_object()
@@ -1220,13 +1197,11 @@ pub async fn create_folder(
     prefix: &str,
     folder_name: &str,
 ) -> Result<(), PakerError> {
-    crate::path_safety::validate_s3_key_segment(folder_name).map_err(|_| {
-        PakerError::InvalidInput("Invalid folder name".to_string())
-    })?;
+    crate::path_safety::validate_s3_key_segment(folder_name)
+        .map_err(|_| PakerError::InvalidInput("Invalid folder name".to_string()))?;
     if !prefix.is_empty() {
-        crate::path_safety::validate_s3_object_key(prefix).map_err(|_| {
-            PakerError::InvalidInput("Invalid prefix".to_string())
-        })?;
+        crate::path_safety::validate_s3_object_key(prefix)
+            .map_err(|_| PakerError::InvalidInput("Invalid prefix".to_string()))?;
     }
     let mut key = prefix.to_string();
     if !key.is_empty() && !key.ends_with('/') {

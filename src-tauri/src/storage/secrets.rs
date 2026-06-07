@@ -134,16 +134,15 @@ fn derive_portable_key_v1() -> Result<[u8; 32]> {
 }
 
 fn derive_portable_key_v2(seed: &[u8]) -> Result<[u8; 32]> {
-    let mut material =
-        Vec::with_capacity(seed.len() + PORTABLE_KEY_MATERIAL.len());
+    let mut material = Vec::with_capacity(seed.len() + PORTABLE_KEY_MATERIAL.len());
     material.extend_from_slice(seed);
     material.extend_from_slice(PORTABLE_KEY_MATERIAL.as_bytes());
     derive_portable_key_from_material(&material, PORTABLE_SALT_V2)
 }
 
 fn derive_portable_key_from_material(material: &[u8], salt: &[u8]) -> Result<[u8; 32]> {
-    let params = Params::new(19_456, 2, 1, Some(32))
-        .map_err(|e| anyhow!("invalid argon2 params: {e}"))?;
+    let params =
+        Params::new(19_456, 2, 1, Some(32)).map_err(|e| anyhow!("invalid argon2 params: {e}"))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
     let mut key = [0u8; 32];
     argon2
@@ -306,32 +305,27 @@ fn use_file_storage_only() -> bool {
     paths::is_portable_mode()
 }
 
-fn get_connection_secrets(app: &AppHandle, connection_id: &str) -> Result<Option<ConnectionSecrets>> {
+fn get_connection_secrets(
+    app: &AppHandle,
+    connection_id: &str,
+) -> Result<Option<ConnectionSecrets>> {
     if use_file_storage_only() {
-        return Ok(read_file_secrets(app)?
-            .secrets
-            .get(connection_id)
-            .cloned());
+        return Ok(read_file_secrets(app)?.secrets.get(connection_id).cloned());
     }
 
     if let Some(secrets) = read_keyring_secrets(connection_id)? {
         return Ok(Some(secrets));
     }
 
-    Ok(read_file_secrets(app)?
-        .secrets
-        .get(connection_id)
-        .cloned())
+    Ok(read_file_secrets(app)?.secrets.get(connection_id).cloned())
 }
 
 pub fn get_secret(app: &AppHandle, connection_id: &str) -> Result<Option<String>> {
-    Ok(get_connection_secrets(app, connection_id)?
-        .map(|secrets| secrets.secret_access_key))
+    Ok(get_connection_secrets(app, connection_id)?.map(|secrets| secrets.secret_access_key))
 }
 
 pub fn get_session_token(app: &AppHandle, connection_id: &str) -> Result<Option<String>> {
-    Ok(get_connection_secrets(app, connection_id)?
-        .and_then(|secrets| secrets.session_token))
+    Ok(get_connection_secrets(app, connection_id)?.and_then(|secrets| secrets.session_token))
 }
 
 pub fn set_secrets(
@@ -347,9 +341,7 @@ pub fn set_secrets(
 
     if use_file_storage_only() {
         let mut secrets = read_file_secrets(app)?;
-        secrets
-            .secrets
-            .insert(connection_id.to_string(), entry);
+        secrets.secrets.insert(connection_id.to_string(), entry);
         write_file_secrets(app, &secrets)?;
         return Ok(());
     }

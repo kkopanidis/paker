@@ -95,8 +95,8 @@ fn read_cache(app: &AppHandle) -> Result<Option<UpdateInfo>> {
         return Ok(None);
     }
 
-    let contents = fs::read_to_string(&path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let contents =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
     if contents.trim().is_empty() {
         return Ok(None);
     }

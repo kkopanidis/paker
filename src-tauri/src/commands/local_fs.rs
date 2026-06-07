@@ -63,9 +63,7 @@ impl LocalFsScope {
             return true;
         }
         let roots = self.picked_roots.lock().expect("picked_roots lock");
-        roots
-            .iter()
-            .any(|root| is_path_under_root(canonical, root))
+        roots.iter().any(|root| is_path_under_root(canonical, root))
     }
 
     pub fn validate_access(&self, path: &Path) -> Result<PathBuf, PakerError> {
@@ -73,7 +71,9 @@ impl LocalFsScope {
             return Err(PakerError::PathNotAllowed);
         }
 
-        let canonical = path.canonicalize().map_err(|_| PakerError::PathNotAllowed)?;
+        let canonical = path
+            .canonicalize()
+            .map_err(|_| PakerError::PathNotAllowed)?;
 
         if self.is_under_scope(&canonical) {
             return Ok(canonical);
@@ -98,7 +98,9 @@ impl LocalFsScope {
             return Err(PakerError::PathNotAllowed);
         }
 
-        let canonical = path.canonicalize().map_err(|_| PakerError::PathNotAllowed)?;
+        let canonical = path
+            .canonicalize()
+            .map_err(|_| PakerError::PathNotAllowed)?;
 
         {
             let files = self.allowed_files.lock().expect("allowed_files lock");
@@ -138,9 +140,7 @@ impl LocalFsScope {
             return Err(PakerError::PathNotAllowed);
         }
         if !meta.is_file() {
-            return Err(PakerError::InvalidInput(
-                "Path is not a file".to_string(),
-            ));
+            return Err(PakerError::InvalidInput("Path is not a file".to_string()));
         }
         Ok(canonical.to_path_buf())
     }
@@ -246,12 +246,12 @@ pub async fn open_preview_file(app: AppHandle, path: String) -> Result<(), Paker
         tracing::warn!(error = %e, "preview cache dir unavailable");
         PakerError::Internal
     })?;
-    let cache_dir = cache_dir
-        .canonicalize()
-        .unwrap_or(cache_dir);
+    let cache_dir = cache_dir.canonicalize().unwrap_or(cache_dir);
 
     let file = PathBuf::from(&path);
-    let canonical = file.canonicalize().map_err(|_| PakerError::PathNotAllowed)?;
+    let canonical = file
+        .canonicalize()
+        .map_err(|_| PakerError::PathNotAllowed)?;
 
     if !is_path_under_root(&canonical, &cache_dir) {
         tracing::warn!("blocked open_preview_file outside preview cache");

@@ -2,9 +2,9 @@ use crate::commands::local_fs::LocalFsScope;
 use crate::error::{clamp_presign_expiry_secs, into_ipc_error, PakerError};
 use crate::s3::build_client_for_id;
 use crate::s3::operations::{
-    calculate_prefix_size as s3_calculate_prefix_size,
-    copy_objects_batch as s3_copy_objects_batch, create_folder as s3_create_folder,
-    delete_objects_batch, get_bucket_metadata as s3_get_bucket_metadata, get_object_to_path,
+    calculate_prefix_size as s3_calculate_prefix_size, copy_objects_batch as s3_copy_objects_batch,
+    create_folder as s3_create_folder, delete_objects_batch,
+    get_bucket_metadata as s3_get_bucket_metadata, get_object_to_path,
     head_object as s3_head_object, join_prefix, list_buckets as s3_list_buckets, list_objects_v2,
     local_dest_path, move_objects_batch as s3_move_objects_batch, object_exists,
     object_info_to_head, presign_get_object as s3_presign_get_object,
@@ -74,8 +74,7 @@ fn seed_head_cache_from_listing(
 }
 
 fn max_concurrent(app: &AppHandle) -> usize {
-    storage::ui_state::get_max_concurrent_transfers(app)
-        .max(1) as usize
+    storage::ui_state::get_max_concurrent_transfers(app).max(1) as usize
 }
 
 #[tauri::command]
@@ -114,7 +113,9 @@ pub async fn verify_bucket(
 ) -> Result<(), PakerError> {
     let bucket = bucket.trim().to_string();
     if bucket.is_empty() {
-        return Err(PakerError::InvalidInput("Bucket name is required".to_string()));
+        return Err(PakerError::InvalidInput(
+            "Bucket name is required".to_string(),
+        ));
     }
 
     let client = build_client_for_id(&app, &connection_id).await?;
@@ -165,15 +166,12 @@ pub async fn get_bucket_metadata(
 
     let client = build_client_for_id(&app, &connection_id).await?;
 
-    let creation_date = s3_list_buckets(&client)
-        .await
-        .ok()
-        .and_then(|buckets| {
-            buckets
-                .into_iter()
-                .find(|b| b.name == bucket)
-                .and_then(|b| b.creation_date)
-        });
+    let creation_date = s3_list_buckets(&client).await.ok().and_then(|buckets| {
+        buckets
+            .into_iter()
+            .find(|b| b.name == bucket)
+            .and_then(|b| b.creation_date)
+    });
 
     s3_get_bucket_metadata(
         &client,
@@ -198,10 +196,7 @@ pub async fn read_list_cache(
     let prefix_str = prefix.as_deref().unwrap_or("");
     Ok(cache
         .get_listing(&connection_id, &bucket, prefix_str, "")
-        .map(|(result, fetched_at)| CachedListResponse {
-            result,
-            fetched_at,
-        }))
+        .map(|(result, fetched_at)| CachedListResponse { result, fetched_at }))
 }
 
 #[tauri::command]
@@ -232,13 +227,7 @@ pub async fn list_objects(
     )
     .await?;
 
-    let _ = cache.put_listing(
-        &connection_id,
-        &bucket,
-        prefix_str,
-        token_str,
-        &result,
-    );
+    let _ = cache.put_listing(&connection_id, &bucket, prefix_str, token_str, &result);
     seed_head_cache_from_listing(&cache, &connection_id, &bucket, &result);
 
     Ok(ListObjectsResponse {
@@ -332,9 +321,7 @@ pub async fn upload_files(
             )
             .await;
             app_clone.state::<TransferManager>().remove(&tid);
-            result
-                .map(|_| key_clone)
-                .map_err(into_ipc_error)
+            result.map(|_| key_clone).map_err(into_ipc_error)
         });
     }
 
@@ -444,28 +431,19 @@ async fn collect_results(
 }
 
 #[tauri::command]
-pub async fn cancel_transfer(
-    app: AppHandle,
-    transfer_id: String,
-) -> Result<(), PakerError> {
+pub async fn cancel_transfer(app: AppHandle, transfer_id: String) -> Result<(), PakerError> {
     app.state::<TransferManager>().cancel(&transfer_id);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn pause_transfer(
-    app: AppHandle,
-    transfer_id: String,
-) -> Result<(), PakerError> {
+pub async fn pause_transfer(app: AppHandle, transfer_id: String) -> Result<(), PakerError> {
     app.state::<TransferManager>().pause(&transfer_id);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn resume_transfer(
-    app: AppHandle,
-    transfer_id: String,
-) -> Result<(), PakerError> {
+pub async fn resume_transfer(app: AppHandle, transfer_id: String) -> Result<(), PakerError> {
     app.state::<TransferManager>().resume(&transfer_id);
     Ok(())
 }
@@ -661,8 +639,7 @@ fn resolve_items(items: Vec<CopyMoveItem>, dest_prefix: Option<&str>) -> Vec<Cop
     items
         .into_iter()
         .map(|item| {
-            let dest_key =
-                resolve_dest_key(&item.src_key, item.dest_key.as_deref(), dest_prefix);
+            let dest_key = resolve_dest_key(&item.src_key, item.dest_key.as_deref(), dest_prefix);
             CopyItem {
                 src_key: item.src_key,
                 dest_key,

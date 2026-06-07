@@ -110,7 +110,9 @@ pub async fn start_bucket_index(
         }
 
         app_clone.state::<TransferManager>().remove(&job_id_clone);
-        app_clone.state::<BucketIndexManager>().finish(&job_id_clone);
+        app_clone
+            .state::<BucketIndexManager>()
+            .finish(&job_id_clone);
     });
 
     Ok(job_id)
@@ -234,7 +236,6 @@ pub async fn export_bucket_index_csv(
         fs::create_dir_all(parent).map_err(|_| PakerError::PathNotAllowed)?;
     }
 
-    crate::storage::paths::write_private_file(&dest, csv.as_bytes())
-        .map_err(into_ipc_error)?;
+    crate::storage::paths::write_private_file(&dest, csv.as_bytes()).map_err(into_ipc_error)?;
     Ok(dest.to_string_lossy().into_owned())
 }

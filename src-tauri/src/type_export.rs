@@ -6,7 +6,8 @@ mod tests {
 
     #[test]
     fn export_typescript_bindings() {
-        let output = Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/types/generated/bindings.ts");
+        let output =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/types/generated/bindings.ts");
         if let Some(parent) = output.parent() {
             std::fs::create_dir_all(parent).expect("create generated types dir");
         }

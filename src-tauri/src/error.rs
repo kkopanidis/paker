@@ -55,16 +55,16 @@ impl PakerError {
 
     pub fn user_action(&self) -> Option<&'static str> {
         match self {
-            Self::ConnectionNotFound => {
-                Some("Open Connections and add or select a profile.")
-            }
+            Self::ConnectionNotFound => Some("Open Connections and add or select a profile."),
             Self::BucketNotFound => {
                 Some("Verify the bucket name and that your account can access it.")
             }
             Self::AccessDenied => {
                 Some("Check your access key, secret key, session token, and IAM permissions.")
             }
-            Self::Network => Some("Check your network connection and that the endpoint is reachable."),
+            Self::Network => {
+                Some("Check your network connection and that the endpoint is reachable.")
+            }
             Self::InvalidInput(_) => None,
             Self::InvalidEndpoint => {
                 Some("Enter a full http:// or https:// URL for the S3-compatible endpoint.")

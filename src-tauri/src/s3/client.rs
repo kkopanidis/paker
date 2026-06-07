@@ -6,7 +6,10 @@ use aws_sdk_s3::config::{Builder as S3ConfigBuilder, Region};
 use aws_sdk_s3::Client;
 use tauri::AppHandle;
 
-pub async fn build_client(app: &AppHandle, profile: &ConnectionProfile) -> Result<Client, PakerError> {
+pub async fn build_client(
+    app: &AppHandle,
+    profile: &ConnectionProfile,
+) -> Result<Client, PakerError> {
     let secret = get_secret(app, &profile.id)
         .map_err(into_ipc_error)?
         .ok_or_else(|| {

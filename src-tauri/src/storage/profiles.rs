@@ -37,8 +37,8 @@ fn read_all(app: &AppHandle) -> Result<Vec<ConnectionProfile>> {
         return Ok(Vec::new());
     }
 
-    let contents = fs::read_to_string(&path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let contents =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
     if contents.trim().is_empty() {
         return Ok(Vec::new());
     }
@@ -59,9 +59,7 @@ pub fn list_connections(app: &AppHandle) -> Result<Vec<ConnectionProfile>> {
 }
 
 pub fn get_connection(app: &AppHandle, id: &str) -> Result<Option<ConnectionProfile>> {
-    Ok(read_all(app)?
-        .into_iter()
-        .find(|profile| profile.id == id))
+    Ok(read_all(app)?.into_iter().find(|profile| profile.id == id))
 }
 
 pub fn save_connection(app: &AppHandle, input: SaveConnectionInput) -> Result<ConnectionProfile> {
