@@ -50,11 +50,16 @@ jobs:
       # Dev-only tools (e.g. vitest UI server) are omitted; audit shipped runtime deps.
       - run: npm audit --audit-level=high --omit=dev
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+          cache-all-crates: true
       - run: cargo install cargo-audit --locked
       - run: cargo audit
         working-directory: src-tauri
 
-  rust:
+  rust-tauri:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
@@ -66,31 +71,11 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libappindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            mold
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
-
-      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
-      - run: cargo test --manifest-path src-tauri/Cargo.toml
-      - run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
-
-  tauri-build-smoke:
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libappindicator3-dev \
-            librsvg2-dev \
-            patchelf
+      - name: Configure fast linker
+        run: echo "RUSTFLAGS=-C link-arg=-fuse-ld=mold" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v6
         with:
@@ -104,5 +89,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          cache-on-failure: true
+          cache-all-crates: true
 
-      - run: npm run tauri build -- --debug
+      - run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
+      - run: npm run tauri build -- --debug --no-bundle
