@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { calculatePrefixSize } from "@/lib/tauri";
+import { calculatePrefixSize, formatIpcError } from "@/lib/tauri";
 import type { PrefixSizeProgress, PrefixSizeResult } from "@/types/s3";
 
 interface ActiveState {
@@ -66,8 +66,7 @@ export function usePrefixSize(connectionId: string | null, bucket: string | null
         return result;
       } catch (err) {
         if (runId !== runIdRef.current) return null;
-        const message = err instanceof Error ? err.message : String(err);
-        setActive({ prefix, loading: false, progress: null, error: message });
+        setActive({ prefix, loading: false, progress: null, error: formatIpcError(err) });
         return null;
       } finally {
         unlisten?.();

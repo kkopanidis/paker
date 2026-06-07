@@ -33,6 +33,8 @@ pub struct UiPreferences {
     pub connections_collapsed: bool,
     #[serde(default = "default_true")]
     pub buckets_collapsed: bool,
+    #[serde(default = "default_true")]
+    pub check_for_updates: bool,
 }
 
 fn default_details_open() -> bool {
@@ -83,8 +85,8 @@ fn read_state(app: &AppHandle) -> Result<UiState> {
     if !path.exists() {
         return Ok(UiState::default());
     }
-    let contents = fs::read_to_string(&path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
+    let contents =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
     if contents.trim().is_empty() {
         return Ok(UiState::default());
     }
@@ -95,7 +97,7 @@ fn write_state(app: &AppHandle, state: &UiState) -> Result<()> {
     let path = paths::ui_state_path(app)?;
     paths::ensure_parent(&path)?;
     let contents = serde_json::to_string_pretty(state).context("failed to serialize ui state")?;
-    fs::write(&path, contents).with_context(|| format!("failed to write {}", path.display()))
+    paths::write_private_file(&path, contents.as_bytes())
 }
 
 impl From<UiState> for FullUiState {
@@ -138,30 +140,13 @@ pub fn get_max_concurrent_transfers(app: &AppHandle) -> u32 {
         .unwrap_or(3)
 }
 
-#[allow(dead_code)]
-pub fn set_max_concurrent_transfers(app: &AppHandle, value: u32) -> Result<()> {
-    let mut state = read_state(app)?;
-    state.max_concurrent_transfers = value;
-    write_state(app, &state)
-}
-
 pub fn get_connection_nav(app: &AppHandle, connection_id: &str) -> Option<ConnectionNav> {
-    read_state(app)
-        .ok()?
-        .last_nav
-        .get(connection_id)
-        .cloned()
+    read_state(app).ok()?.last_nav.get(connection_id).cloned()
 }
 
-pub fn set_connection_nav(
-    app: &AppHandle,
-    connection_id: &str,
-    nav: ConnectionNav,
-) -> Result<()> {
+pub fn set_connection_nav(app: &AppHandle, connection_id: &str, nav: ConnectionNav) -> Result<()> {
     let mut state = read_state(app)?;
-    state
-        .last_nav
-        .insert(connection_id.to_owned(), nav);
+    state.last_nav.insert(connection_id.to_owned(), nav);
     write_state(app, &state)
 }
 
@@ -172,11 +157,7 @@ pub fn get_bookmarks(app: &AppHandle, connection_id: &str) -> Vec<PrefixBookmark
         .unwrap_or_default()
 }
 
-pub fn add_bookmark(
-    app: &AppHandle,
-    connection_id: &str,
-    bookmark: PrefixBookmark,
-) -> Result<()> {
+pub fn add_bookmark(app: &AppHandle, connection_id: &str, bookmark: PrefixBookmark) -> Result<()> {
     let mut state = read_state(app)?;
     state
         .bookmarks
@@ -186,11 +167,7 @@ pub fn add_bookmark(
     write_state(app, &state)
 }
 
-pub fn remove_bookmark(
-    app: &AppHandle,
-    connection_id: &str,
-    bookmark_id: &str,
-) -> Result<()> {
+pub fn remove_bookmark(app: &AppHandle, connection_id: &str, bookmark_id: &str) -> Result<()> {
     let mut state = read_state(app)?;
     if let Some(bookmarks) = state.bookmarks.get_mut(connection_id) {
         bookmarks.retain(|b| b.id != bookmark_id);
@@ -202,9 +179,7 @@ pub fn remove_bookmark(
 }
 
 pub fn get_ui_preferences(app: &AppHandle) -> UiPreferences {
-    read_state(app)
-        .map(|s| s.preferences)
-        .unwrap_or_default()
+    read_state(app).map(|s| s.preferences).unwrap_or_default()
 }
 
 pub fn set_ui_preferences(app: &AppHandle, prefs: UiPreferences) -> Result<()> {
@@ -213,10 +188,7 @@ pub fn set_ui_preferences(app: &AppHandle, prefs: UiPreferences) -> Result<()> {
     write_state(app, &state)
 }
 
-pub fn get_panel_layout(
-    app: &AppHandle,
-    mode: &str,
-) -> Result<Option<HashMap<String, f64>>> {
+pub fn get_panel_layout(app: &AppHandle, mode: &str) -> Result<Option<HashMap<String, f64>>> {
     let state = read_state(app)?;
     Ok(match mode {
         "three" => state.panel_layout_three,
@@ -225,11 +197,7 @@ pub fn get_panel_layout(
     })
 }
 
-pub fn set_panel_layout(
-    app: &AppHandle,
-    mode: &str,
-    layout: HashMap<String, f64>,
-) -> Result<()> {
+pub fn set_panel_layout(app: &AppHandle, mode: &str, layout: HashMap<String, f64>) -> Result<()> {
     let mut state = read_state(app)?;
     match mode {
         "three" => state.panel_layout_three = Some(layout),

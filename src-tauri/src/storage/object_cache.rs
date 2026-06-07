@@ -87,8 +87,9 @@ impl ObjectCacheManager {
 
     pub(crate) fn open(db_path: PathBuf) -> Result<Self> {
         paths::ensure_parent(&db_path)?;
-        let conn = Connection::open(&db_path)
-            .with_context(|| format!("failed to open object cache database {}", db_path.display()))?;
+        let conn = Connection::open(&db_path).with_context(|| {
+            format!("failed to open object cache database {}", db_path.display())
+        })?;
         Self::init_schema(&conn)?;
 
         let capacity = NonZeroUsize::new(LISTINGS_LRU_CAPACITY).expect("LRU capacity must be > 0");
@@ -229,8 +230,8 @@ impl ObjectCacheManager {
         result: &ListObjectsResult,
     ) -> Result<()> {
         let fetched_at = timestamp_now();
-        let json =
-            serde_json::to_string(result).context("failed to serialize listing for object cache")?;
+        let json = serde_json::to_string(result)
+            .context("failed to serialize listing for object cache")?;
 
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -437,12 +438,7 @@ impl ObjectCacheManager {
         Ok(())
     }
 
-    fn invalidate_listings_lru_exact(
-        &self,
-        connection_id: &str,
-        bucket: &str,
-        prefix: &str,
-    ) {
+    fn invalidate_listings_lru_exact(&self, connection_id: &str, bucket: &str, prefix: &str) {
         let key = ListingCacheKey {
             connection_id: connection_id.to_string(),
             bucket: bucket.to_string(),
@@ -602,7 +598,9 @@ mod tests {
             .invalidate_prefix("conn-1", "bucket", "photos/")
             .expect("invalidate prefix");
 
-        assert!(cache.get_listing("conn-1", "bucket", "photos/", "").is_none());
+        assert!(cache
+            .get_listing("conn-1", "bucket", "photos/", "")
+            .is_none());
         assert!(cache
             .get_listing("conn-1", "bucket", "photos/nested/", "")
             .is_none());
@@ -649,7 +647,9 @@ mod tests {
             .expect("invalidate parent");
 
         assert!(cache.get_listing("conn-1", "bucket", "", "").is_none());
-        assert!(cache.get_listing("conn-1", "bucket", "photos/", "").is_some());
+        assert!(cache
+            .get_listing("conn-1", "bucket", "photos/", "")
+            .is_some());
         assert!(cache
             .get_head("conn-1", "bucket", "photos/cat.jpg")
             .is_some());

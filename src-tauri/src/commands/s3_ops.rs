@@ -1,8 +1,10 @@
+use crate::commands::local_fs::LocalFsScope;
+use crate::error::{clamp_presign_expiry_secs, into_ipc_error, PakerError};
 use crate::s3::build_client_for_id;
 use crate::s3::operations::{
-    calculate_prefix_size as s3_calculate_prefix_size,
-    copy_objects_batch as s3_copy_objects_batch, create_folder as s3_create_folder,
-    delete_objects_batch, get_bucket_metadata as s3_get_bucket_metadata, get_object_to_path,
+    calculate_prefix_size as s3_calculate_prefix_size, copy_objects_batch as s3_copy_objects_batch,
+    create_folder as s3_create_folder, delete_objects_batch,
+    get_bucket_metadata as s3_get_bucket_metadata, get_object_to_path,
     head_object as s3_head_object, join_prefix, list_buckets as s3_list_buckets, list_objects_v2,
     local_dest_path, move_objects_batch as s3_move_objects_batch, object_exists,
     object_info_to_head, presign_get_object as s3_presign_get_object,
@@ -21,10 +23,6 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use uuid::Uuid;
-
-fn map_err(err: impl ToString) -> String {
-    err.to_string()
-}
 
 fn timestamp_now() -> String {
     std::time::SystemTime::now()
@@ -76,8 +74,7 @@ fn seed_head_cache_from_listing(
 }
 
 fn max_concurrent(app: &AppHandle) -> usize {
-    storage::ui_state::get_max_concurrent_transfers(app)
-        .max(1) as usize
+    storage::ui_state::get_max_concurrent_transfers(app).max(1) as usize
 }
 
 #[tauri::command]
@@ -85,10 +82,10 @@ pub async fn list_buckets(
     app: AppHandle,
     connection_id: String,
     force_all: Option<bool>,
-) -> Result<Vec<BucketInfo>, String> {
+) -> Result<Vec<BucketInfo>, PakerError> {
     let profile = storage::get_connection(&app, &connection_id)
-        .map_err(map_err)?
-        .ok_or_else(|| format!("connection not found: {connection_id}"))?;
+        .map_err(into_ipc_error)?
+        .ok_or(PakerError::ConnectionNotFound)?;
 
     if !force_all.unwrap_or(false) {
         if let Some(bucket) = profile
@@ -104,10 +101,8 @@ pub async fn list_buckets(
         }
     }
 
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
-    s3_list_buckets(&client).await.map_err(map_err)
+    let client = build_client_for_id(&app, &connection_id).await?;
+    s3_list_buckets(&client).await
 }
 
 #[tauri::command]
@@ -115,18 +110,16 @@ pub async fn verify_bucket(
     app: AppHandle,
     connection_id: String,
     bucket: String,
-) -> Result<(), String> {
+) -> Result<(), PakerError> {
     let bucket = bucket.trim().to_string();
     if bucket.is_empty() {
-        return Err("bucket name is required".to_string());
+        return Err(PakerError::InvalidInput(
+            "Bucket name is required".to_string(),
+        ));
     }
 
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
-    verify_bucket_access(&client, &bucket)
-        .await
-        .map_err(map_err)
+    let client = build_client_for_id(&app, &connection_id).await?;
+    verify_bucket_access(&client, &bucket).await
 }
 
 #[tauri::command]
@@ -136,7 +129,7 @@ pub async fn calculate_prefix_size(
     bucket: String,
     prefix: Option<String>,
     force_refresh: Option<bool>,
-) -> Result<PrefixSizeResult, String> {
+) -> Result<PrefixSizeResult, PakerError> {
     let prefix_str = prefix.as_deref().unwrap_or("");
     let normalized = if prefix_str.is_empty() {
         String::new()
@@ -155,11 +148,8 @@ pub async fn calculate_prefix_size(
         }
     }
 
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
-    let result =
-        s3_calculate_prefix_size(&app, &client, &bucket, prefix_str).await.map_err(map_err)?;
+    let client = build_client_for_id(&app, &connection_id).await?;
+    let result = s3_calculate_prefix_size(&app, &client, &bucket, prefix_str).await?;
     let _ = cache.put_prefix_size(&connection_id, &bucket, &result.prefix, &result);
     Ok(result)
 }
@@ -169,24 +159,19 @@ pub async fn get_bucket_metadata(
     app: AppHandle,
     connection_id: String,
     bucket: String,
-) -> Result<BucketMetadata, String> {
+) -> Result<BucketMetadata, PakerError> {
     let profile = storage::get_connection(&app, &connection_id)
-        .map_err(map_err)?
-        .ok_or_else(|| format!("connection not found: {connection_id}"))?;
+        .map_err(into_ipc_error)?
+        .ok_or(PakerError::ConnectionNotFound)?;
 
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
+    let client = build_client_for_id(&app, &connection_id).await?;
 
-    let creation_date = s3_list_buckets(&client)
-        .await
-        .ok()
-        .and_then(|buckets| {
-            buckets
-                .into_iter()
-                .find(|b| b.name == bucket)
-                .and_then(|b| b.creation_date)
-        });
+    let creation_date = s3_list_buckets(&client).await.ok().and_then(|buckets| {
+        buckets
+            .into_iter()
+            .find(|b| b.name == bucket)
+            .and_then(|b| b.creation_date)
+    });
 
     s3_get_bucket_metadata(
         &client,
@@ -198,7 +183,6 @@ pub async fn get_bucket_metadata(
         Some(profile.force_path_style),
     )
     .await
-    .map_err(map_err)
 }
 
 #[tauri::command]
@@ -207,15 +191,12 @@ pub async fn read_list_cache(
     connection_id: String,
     bucket: String,
     prefix: Option<String>,
-) -> Result<Option<CachedListResponse>, String> {
+) -> Result<Option<CachedListResponse>, PakerError> {
     let cache = app.state::<ObjectCacheManager>();
     let prefix_str = prefix.as_deref().unwrap_or("");
     Ok(cache
         .get_listing(&connection_id, &bucket, prefix_str, "")
-        .map(|(result, fetched_at)| CachedListResponse {
-            result,
-            fetched_at,
-        }))
+        .map(|(result, fetched_at)| CachedListResponse { result, fetched_at }))
 }
 
 #[tauri::command]
@@ -226,7 +207,7 @@ pub async fn list_objects(
     prefix: Option<String>,
     continuation_token: Option<String>,
     force_refresh: Option<bool>,
-) -> Result<ListObjectsResponse, String> {
+) -> Result<ListObjectsResponse, PakerError> {
     let prefix_str = prefix.as_deref().unwrap_or("");
     let token_str = continuation_token.as_deref().unwrap_or("");
     let cache = app.state::<ObjectCacheManager>();
@@ -237,25 +218,16 @@ pub async fn list_objects(
         let _ = cache.invalidate_prefix(&connection_id, &bucket, prefix_str);
     }
 
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
+    let client = build_client_for_id(&app, &connection_id).await?;
     let result = list_objects_v2(
         &client,
         &bucket,
         prefix.as_deref(),
         continuation_token.as_deref(),
     )
-    .await
-    .map_err(map_err)?;
+    .await?;
 
-    let _ = cache.put_listing(
-        &connection_id,
-        &bucket,
-        prefix_str,
-        token_str,
-        &result,
-    );
+    let _ = cache.put_listing(&connection_id, &bucket, prefix_str, token_str, &result);
     seed_head_cache_from_listing(&cache, &connection_id, &bucket, &result);
 
     Ok(ListObjectsResponse {
@@ -266,11 +238,16 @@ pub async fn list_objects(
 }
 
 #[tauri::command]
-pub async fn pick_upload_files() -> Result<Vec<String>, String> {
-    Ok(rfd::FileDialog::new()
+pub async fn pick_upload_files(app: AppHandle) -> Result<Vec<String>, PakerError> {
+    let picked: Vec<PathBuf> = rfd::FileDialog::new()
         .set_title("Select files to upload")
         .pick_files()
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    let scope = app.state::<LocalFsScope>();
+    scope.register_file_paths(&picked);
+
+    Ok(picked
         .into_iter()
         .map(|path| path.to_string_lossy().into_owned())
         .collect())
@@ -283,32 +260,33 @@ pub async fn upload_files(
     bucket: String,
     prefix: String,
     local_paths: Vec<String>,
-) -> Result<Vec<String>, String> {
-    let paths: Vec<String> = if local_paths.is_empty() {
-        rfd::FileDialog::new()
+) -> Result<Vec<String>, PakerError> {
+    let scope = app.state::<LocalFsScope>();
+    let validated_paths: Vec<PathBuf> = if local_paths.is_empty() {
+        let picked: Vec<PathBuf> = rfd::FileDialog::new()
             .set_title("Select files to upload")
             .pick_files()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|path| path.to_string_lossy().into_owned())
-            .collect()
+            .unwrap_or_default();
+        scope.register_file_paths(&picked);
+        picked
+            .iter()
+            .map(|p| scope.validate_file_access(p.as_path()))
+            .collect::<Result<Vec<_>, _>>()?
     } else {
-        local_paths
+        let path_bufs: Vec<PathBuf> = local_paths.into_iter().map(PathBuf::from).collect();
+        scope.prepare_upload_paths(&path_bufs)?
     };
 
-    if paths.is_empty() {
+    if validated_paths.is_empty() {
         return Ok(Vec::new());
     }
 
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
+    let client = build_client_for_id(&app, &connection_id).await?;
 
     let sem = Arc::new(Semaphore::new(max_concurrent(&app)));
-    let mut set: JoinSet<Result<String, String>> = JoinSet::new();
+    let mut set: JoinSet<Result<String, PakerError>> = JoinSet::new();
 
-    for local_path in paths {
-        let path = PathBuf::from(&local_path);
+    for path in validated_paths {
         let file_name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -323,7 +301,7 @@ pub async fn upload_files(
         let permit = Arc::clone(&sem)
             .acquire_owned()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| PakerError::Internal)?;
         let app_clone = app.clone();
         let client_clone = client.clone();
         let bucket_clone = bucket.clone();
@@ -343,7 +321,7 @@ pub async fn upload_files(
             )
             .await;
             app_clone.state::<TransferManager>().remove(&tid);
-            result.map(|_| key_clone).map_err(|e| e.to_string())
+            result.map(|_| key_clone).map_err(into_ipc_error)
         });
     }
 
@@ -360,28 +338,35 @@ pub async fn download_files(
     bucket: String,
     keys: Vec<String>,
     save_dir: Option<String>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, PakerError> {
     if keys.is_empty() {
         return Ok(Vec::new());
     }
 
-    let save_dir = match save_dir {
-        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-        _ => rfd::FileDialog::new()
-            .set_title("Select download folder")
-            .pick_folder()
-            .ok_or_else(|| "download cancelled: no folder selected".to_string())?,
+    let scope = app.state::<LocalFsScope>();
+    let save_dir = match save_dir.filter(|d| !d.is_empty()) {
+        Some(dir) => scope.validate_dir_access(Path::new(&dir))?,
+        None => {
+            let picked = rfd::FileDialog::new()
+                .set_title("Select download folder")
+                .pick_folder()
+                .ok_or_else(|| {
+                    PakerError::InvalidInput("Download cancelled: no folder selected".to_string())
+                })?;
+            scope.register_picked_folder(&picked);
+            scope.validate_dir_access(&picked)?
+        }
     };
 
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
+    let client = build_client_for_id(&app, &connection_id).await?;
 
     let sem = Arc::new(Semaphore::new(max_concurrent(&app)));
-    let mut set: JoinSet<Result<String, String>> = JoinSet::new();
+    let mut set: JoinSet<Result<String, PakerError>> = JoinSet::new();
 
     for key in keys {
-        let dest = local_dest_path(&save_dir, &key);
+        let dest = local_dest_path(&save_dir, &key).map_err(|_| {
+            PakerError::InvalidInput("Object key is not a valid local file path".to_string())
+        })?;
         let transfer_id = Uuid::new_v4().to_string();
 
         let token = app.state::<TransferManager>().register(&transfer_id);
@@ -389,7 +374,7 @@ pub async fn download_files(
         let permit = Arc::clone(&sem)
             .acquire_owned()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|_| PakerError::Internal)?;
         let app_clone = app.clone();
         let client_clone = client.clone();
         let bucket_clone = bucket.clone();
@@ -410,16 +395,18 @@ pub async fn download_files(
             app_clone.state::<TransferManager>().remove(&tid);
             result
                 .map(|_| dest.to_string_lossy().into_owned())
-                .map_err(|e| e.to_string())
+                .map_err(into_ipc_error)
         });
     }
 
     collect_results(set).await
 }
 
-async fn collect_results(mut set: JoinSet<Result<String, String>>) -> Result<Vec<String>, String> {
+async fn collect_results(
+    mut set: JoinSet<Result<String, PakerError>>,
+) -> Result<Vec<String>, PakerError> {
     let mut results = Vec::new();
-    let mut first_error: Option<String> = None;
+    let mut first_error: Option<PakerError> = None;
 
     while let Some(join_result) = set.join_next().await {
         match join_result {
@@ -429,9 +416,9 @@ async fn collect_results(mut set: JoinSet<Result<String, String>>) -> Result<Vec
                     first_error = Some(e);
                 }
             }
-            Err(e) => {
+            Err(_) => {
                 if first_error.is_none() {
-                    first_error = Some(e.to_string());
+                    first_error = Some(PakerError::Internal);
                 }
             }
         }
@@ -444,28 +431,19 @@ async fn collect_results(mut set: JoinSet<Result<String, String>>) -> Result<Vec
 }
 
 #[tauri::command]
-pub async fn cancel_transfer(
-    app: AppHandle,
-    transfer_id: String,
-) -> Result<(), String> {
+pub async fn cancel_transfer(app: AppHandle, transfer_id: String) -> Result<(), PakerError> {
     app.state::<TransferManager>().cancel(&transfer_id);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn pause_transfer(
-    app: AppHandle,
-    transfer_id: String,
-) -> Result<(), String> {
+pub async fn pause_transfer(app: AppHandle, transfer_id: String) -> Result<(), PakerError> {
     app.state::<TransferManager>().pause(&transfer_id);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn resume_transfer(
-    app: AppHandle,
-    transfer_id: String,
-) -> Result<(), String> {
+pub async fn resume_transfer(app: AppHandle, transfer_id: String) -> Result<(), PakerError> {
     app.state::<TransferManager>().resume(&transfer_id);
     Ok(())
 }
@@ -476,13 +454,9 @@ pub async fn delete_objects(
     connection_id: String,
     bucket: String,
     keys: Vec<String>,
-) -> Result<(), String> {
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
-    delete_objects_batch(&client, &bucket, &keys)
-        .await
-        .map_err(map_err)?;
+) -> Result<(), PakerError> {
+    let client = build_client_for_id(&app, &connection_id).await?;
+    delete_objects_batch(&client, &bucket, &keys).await?;
 
     let cache = app.state::<ObjectCacheManager>();
     invalidate_for_keys(&cache, &connection_id, &bucket, &keys);
@@ -496,13 +470,9 @@ pub async fn rename_object(
     bucket: String,
     old_key: String,
     new_key: String,
-) -> Result<(), String> {
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
-    s3_rename_object(&client, &bucket, &old_key, &new_key)
-        .await
-        .map_err(map_err)?;
+) -> Result<(), PakerError> {
+    let client = build_client_for_id(&app, &connection_id).await?;
+    s3_rename_object(&client, &bucket, &old_key, &new_key).await?;
 
     let cache = app.state::<ObjectCacheManager>();
     invalidate_after_mutation(
@@ -529,7 +499,7 @@ pub async fn head_object(
     bucket: String,
     key: String,
     force_refresh: Option<bool>,
-) -> Result<ObjectHeadResponse, String> {
+) -> Result<ObjectHeadResponse, PakerError> {
     let cache = app.state::<ObjectCacheManager>();
 
     if !force_refresh.unwrap_or(false) {
@@ -542,12 +512,8 @@ pub async fn head_object(
         }
     }
 
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
-    let result = s3_head_object(&client, &bucket, &key)
-        .await
-        .map_err(map_err)?;
+    let client = build_client_for_id(&app, &connection_id).await?;
+    let result = s3_head_object(&client, &bucket, &key).await?;
     let _ = cache.put_head(&connection_id, &bucket, &key, &result);
 
     Ok(ObjectHeadResponse {
@@ -564,13 +530,10 @@ pub async fn presign_object(
     bucket: String,
     key: String,
     expires_secs: Option<u64>,
-) -> Result<String, String> {
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
-    s3_presign_get_object(&client, &bucket, &key, expires_secs.unwrap_or(3600))
-        .await
-        .map_err(map_err)
+) -> Result<String, PakerError> {
+    let client = build_client_for_id(&app, &connection_id).await?;
+    let expires = clamp_presign_expiry_secs(expires_secs.unwrap_or(3600));
+    s3_presign_get_object(&client, &bucket, &key, expires).await
 }
 
 #[tauri::command]
@@ -579,25 +542,21 @@ pub async fn preview_object_to_cache(
     connection_id: String,
     bucket: String,
     key: String,
-) -> Result<String, String> {
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
+) -> Result<String, PakerError> {
+    let client = build_client_for_id(&app, &connection_id).await?;
     let cache = app.state::<ObjectCacheManager>();
     let head = if let Some((result, _)) = cache.get_head(&connection_id, &bucket, &key) {
         result
     } else {
-        let fetched = s3_head_object(&client, &bucket, &key)
-            .await
-            .map_err(map_err)?;
+        let fetched = s3_head_object(&client, &bucket, &key).await?;
         let _ = cache.put_head(&connection_id, &bucket, &key, &fetched);
         fetched
     };
 
-    let cache_dir = storage::paths::preview_cache_dir(&app).map_err(map_err)?;
+    let cache_dir = storage::paths::preview_cache_dir(&app).map_err(into_ipc_error)?;
     s3_preview_object_to_cache(&app, &client, &cache_dir, &bucket, &key, &head)
         .await
-        .map_err(map_err)
+        .map_err(into_ipc_error)
 }
 
 #[tauri::command]
@@ -606,21 +565,16 @@ pub async fn check_objects_exist(
     connection_id: String,
     bucket: String,
     keys: Vec<String>,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<String>, PakerError> {
     if keys.is_empty() {
         return Ok(Vec::new());
     }
 
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
+    let client = build_client_for_id(&app, &connection_id).await?;
 
     let mut existing = Vec::new();
     for key in keys {
-        if object_exists(&client, &bucket, &key)
-            .await
-            .map_err(map_err)?
-        {
+        if object_exists(&client, &bucket, &key).await? {
             existing.push(key);
         }
     }
@@ -635,13 +589,9 @@ pub async fn create_folder(
     bucket: String,
     prefix: String,
     folder_name: String,
-) -> Result<String, String> {
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
-    s3_create_folder(&client, &bucket, &prefix, &folder_name)
-        .await
-        .map_err(map_err)?;
+) -> Result<String, PakerError> {
+    let client = build_client_for_id(&app, &connection_id).await?;
+    s3_create_folder(&client, &bucket, &prefix, &folder_name).await?;
 
     let mut key = prefix;
     if !key.is_empty() && !key.ends_with('/') {
@@ -689,8 +639,7 @@ fn resolve_items(items: Vec<CopyMoveItem>, dest_prefix: Option<&str>) -> Vec<Cop
     items
         .into_iter()
         .map(|item| {
-            let dest_key =
-                resolve_dest_key(&item.src_key, item.dest_key.as_deref(), dest_prefix);
+            let dest_key = resolve_dest_key(&item.src_key, item.dest_key.as_deref(), dest_prefix);
             CopyItem {
                 src_key: item.src_key,
                 dest_key,
@@ -707,17 +656,15 @@ pub async fn copy_objects(
     dest_bucket: String,
     items: Vec<CopyMoveItem>,
     dest_prefix: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), PakerError> {
     if items.is_empty() {
         return Ok(());
     }
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
+    let client = build_client_for_id(&app, &connection_id).await?;
     let resolved = resolve_items(items, dest_prefix.as_deref());
     s3_copy_objects_batch(&app, &client, &src_bucket, &dest_bucket, &resolved)
         .await
-        .map_err(map_err)?;
+        .map_err(into_ipc_error)?;
 
     let cache = app.state::<ObjectCacheManager>();
     let src_keys: Vec<String> = resolved.iter().map(|i| i.src_key.clone()).collect();
@@ -738,17 +685,13 @@ pub async fn move_objects(
     dest_bucket: String,
     items: Vec<CopyMoveItem>,
     dest_prefix: Option<String>,
-) -> Result<(), String> {
+) -> Result<(), PakerError> {
     if items.is_empty() {
         return Ok(());
     }
-    let client = build_client_for_id(&app, &connection_id)
-        .await
-        .map_err(map_err)?;
+    let client = build_client_for_id(&app, &connection_id).await?;
     let resolved = resolve_items(items, dest_prefix.as_deref());
-    s3_move_objects_batch(&app, &client, &src_bucket, &dest_bucket, &resolved)
-        .await
-        .map_err(map_err)?;
+    s3_move_objects_batch(&app, &client, &src_bucket, &dest_bucket, &resolved).await?;
 
     let cache = app.state::<ObjectCacheManager>();
     let src_keys: Vec<String> = resolved.iter().map(|i| i.src_key.clone()).collect();

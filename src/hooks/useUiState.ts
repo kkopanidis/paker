@@ -7,6 +7,7 @@ const DEFAULT_PREFERENCES: UiPreferences = {
   detailsPaneOpen: true,
   connectionsCollapsed: true,
   bucketsCollapsed: true,
+  checkForUpdates: true,
 };
 
 export function useUiState() {

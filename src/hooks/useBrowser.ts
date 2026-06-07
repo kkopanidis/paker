@@ -6,6 +6,7 @@ import {
   createFolder,
   deleteObjects,
   downloadFiles,
+  formatIpcError,
   listBuckets,
   listObjects,
   moveObjects,
@@ -121,7 +122,7 @@ export function useBrowser(connection: S3Connection | null) {
       }
     } catch (error) {
       toast.error("Failed to list buckets", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     } finally {
       setBucketPromptBusy(false);
@@ -141,7 +142,7 @@ export function useBrowser(connection: S3Connection | null) {
         toast.success("Connected to bucket", { description: bucket });
       } catch (error) {
         toast.error("Could not access bucket", {
-          description: error instanceof Error ? error.message : String(error),
+          description: formatIpcError(error),
         });
         throw error;
       } finally {
@@ -209,7 +210,7 @@ export function useBrowser(connection: S3Connection | null) {
     } catch (error) {
       if (!cacheHit) {
         toast.error("Failed to list objects", {
-          description: error instanceof Error ? error.message : String(error),
+          description: formatIpcError(error),
         });
       }
     } finally {
@@ -252,7 +253,7 @@ export function useBrowser(connection: S3Connection | null) {
       setHasMore(result.isTruncated);
     } catch (error) {
       toast.error("Failed to load more objects", {
-        description: error instanceof Error ? error.message : String(error),
+        description: formatIpcError(error),
       });
     } finally {
       setLoadingMore(false);
@@ -360,7 +361,7 @@ export function useBrowser(connection: S3Connection | null) {
         await loadObjects(true);
       } catch (error) {
         toast.error(`${label} failed`, {
-          description: error instanceof Error ? error.message : String(error),
+          description: formatIpcError(error),
         });
       } finally {
         setBusy(false);
