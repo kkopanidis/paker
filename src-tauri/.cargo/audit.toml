@@ -1,0 +1,9 @@
+# rustls-webpki 0.101.7 is pulled transitively by aws-smithy-http-client (rustls 0.21).
+# Direct TLS (reqwest) uses rustls 0.23 + webpki 0.103.13 (patched).
+# Remove these ignores when aws-sdk drops the rustls 0.21 stack.
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0104",
+]
