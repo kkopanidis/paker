@@ -5,9 +5,24 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      dev-toolchain:
+        patterns:
+          - "typescript"
+          - "vite"
+          - "@vitejs/plugin-react"
+        update-types:
+          - "minor"
+          - "patch"
+          - "major"
 
   - package-ecosystem: cargo
     directory: "/src-tauri"
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
