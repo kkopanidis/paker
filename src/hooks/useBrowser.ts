@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   checkObjectsExist,
@@ -77,16 +77,21 @@ export function useBrowser(connection: S3Connection | null) {
   const [bucketPromptBusy, setBucketPromptBusy] = useState(false);
 
   const configuredBucket = connection?.defaultBucket?.trim() || null;
+  const loadGenerationRef = useRef(0);
+  const navigationRef = useRef<{ connectionId: string; bucket: string } | null>(null);
 
   const applyFixedBucket = useCallback((name: string) => {
+    if (!connection) return;
     setBucketPromptOpen(false);
     setBuckets(fixedBucket(name));
+    navigationRef.current = { connectionId: connection.id, bucket: name };
     setSelectedBucket(name);
-  }, []);
+  }, [connection]);
 
   const loadBuckets = useCallback(async () => {
     if (!connection) {
       setBuckets([]);
+      navigationRef.current = null;
       setSelectedBucket(null);
       setBucketPromptOpen(false);
       return;
@@ -103,6 +108,7 @@ export function useBrowser(connection: S3Connection | null) {
     }
 
     setBuckets([]);
+    navigationRef.current = null;
     setSelectedBucket(null);
     setBucketPromptOpen(true);
   }, [connection, configuredBucket, applyFixedBucket]);
@@ -115,7 +121,11 @@ export function useBrowser(connection: S3Connection | null) {
     try {
       const result = await listBuckets(connection.id, true);
       setBuckets(result);
-      setSelectedBucket(result[0]?.name ?? null);
+      const bucket = result[0]?.name ?? null;
+      navigationRef.current = bucket
+        ? { connectionId: connection.id, bucket }
+        : null;
+      setSelectedBucket(bucket);
       setBucketPromptOpen(false);
       if (result.length === 0) {
         toast.message("No buckets found");
@@ -153,7 +163,16 @@ export function useBrowser(connection: S3Connection | null) {
   );
 
   const loadObjects = useCallback(async (forceRefresh = false) => {
-    if (!connection || !selectedBucket) {
+    const generation = loadGenerationRef.current;
+
+    const navigation = navigationRef.current;
+    if (
+      !connection ||
+      !selectedBucket ||
+      !navigation ||
+      navigation.connectionId !== connection.id ||
+      navigation.bucket !== selectedBucket
+    ) {
       setObjects([]);
       setContinuationToken(null);
       setHasMore(false);
@@ -170,6 +189,7 @@ export function useBrowser(connection: S3Connection | null) {
     if (!forceRefresh) {
       try {
         const cached = await readListCache(connection.id, selectedBucket, prefix);
+        if (generation !== loadGenerationRef.current) return;
         if (cached) {
           cacheHit = true;
           setObjects(normalizeObjects(cached.result, prefix));
@@ -184,6 +204,8 @@ export function useBrowser(connection: S3Connection | null) {
         // Ignore cache read errors; fall through to network fetch.
       }
     }
+
+    if (generation !== loadGenerationRef.current) return;
 
     if (!cacheHit) {
       setLoadingObjects(true);
@@ -201,6 +223,7 @@ export function useBrowser(connection: S3Connection | null) {
         undefined,
         forceRefresh
       );
+      if (generation !== loadGenerationRef.current) return;
       setObjects(normalizeObjects(result, prefix));
       setSelectedKeys(new Set());
       setContinuationToken(result.continuationToken ?? null);
@@ -208,24 +231,36 @@ export function useBrowser(connection: S3Connection | null) {
       setObjectsStale(false);
       setObjectsFetchedAt(result.fetchedAt ?? null);
     } catch (error) {
+      if (generation !== loadGenerationRef.current) return;
       if (!cacheHit) {
         toast.error("Failed to list objects", {
           description: formatIpcError(error),
         });
       }
     } finally {
-      setLoadingObjects(false);
-      setRefreshingObjects(false);
+      if (generation === loadGenerationRef.current) {
+        setLoadingObjects(false);
+        setRefreshingObjects(false);
+      }
     }
   }, [connection, selectedBucket, prefix]);
 
   const refreshObjects = useCallback(() => loadObjects(true), [loadObjects]);
 
   const loadMoreObjects = useCallback(async () => {
-    if (!hasMore || loadingMore || !connection || !selectedBucket || !continuationToken) {
+    if (
+      !hasMore ||
+      loadingMore ||
+      !connection ||
+      !selectedBucket ||
+      !continuationToken ||
+      navigationRef.current?.connectionId !== connection.id ||
+      navigationRef.current?.bucket !== selectedBucket
+    ) {
       return;
     }
 
+    const generation = loadGenerationRef.current;
     setLoadingMore(true);
     try {
       const result = await listObjects(
@@ -234,6 +269,7 @@ export function useBrowser(connection: S3Connection | null) {
         prefix,
         continuationToken
       );
+      if (generation !== loadGenerationRef.current) return;
       const page = normalizeObjects(result, prefix);
       setObjects((current) => {
         const seen = new Set(current.map((o) => o.key));
@@ -252,22 +288,45 @@ export function useBrowser(connection: S3Connection | null) {
       setContinuationToken(result.continuationToken ?? null);
       setHasMore(result.isTruncated);
     } catch (error) {
+      if (generation !== loadGenerationRef.current) return;
       toast.error("Failed to load more objects", {
         description: formatIpcError(error),
       });
     } finally {
-      setLoadingMore(false);
+      if (generation === loadGenerationRef.current) {
+        setLoadingMore(false);
+      }
     }
   }, [hasMore, loadingMore, connection, selectedBucket, prefix, continuationToken]);
 
-  useEffect(() => {
-    void loadBuckets();
+  const setSelectedBucketForConnection = useCallback(
+    (bucket: string | null) => {
+      navigationRef.current =
+        bucket && connection ? { connectionId: connection.id, bucket } : null;
+      setSelectedBucket(bucket);
+    },
+    [connection]
+  );
+
+  useLayoutEffect(() => {
+    loadGenerationRef.current += 1;
+    navigationRef.current = null;
+    setSelectedBucket(null);
     setPrefix("");
+    setObjects([]);
     setSelectedKeys(new Set());
+    setContinuationToken(null);
+    setHasMore(false);
+    setObjectsStale(false);
+    setObjectsFetchedAt(null);
+    void loadBuckets();
   }, [connection?.id, configuredBucket, loadBuckets]);
 
   const applyNavigation = useCallback(
     (bucket: string, nextPrefix: string) => {
+      if (connection) {
+        navigationRef.current = { connectionId: connection.id, bucket };
+      }
       setSelectedBucket(bucket);
       if (!configuredBucket) {
         setBuckets((current) =>
@@ -281,7 +340,7 @@ export function useBrowser(connection: S3Connection | null) {
       setContinuationToken(null);
       setHasMore(false);
     },
-    [configuredBucket]
+    [configuredBucket, connection]
   );
 
   useEffect(() => {
@@ -522,7 +581,7 @@ export function useBrowser(connection: S3Connection | null) {
   return {
     buckets,
     selectedBucket,
-    setSelectedBucket,
+    setSelectedBucket: setSelectedBucketForConnection,
     prefix,
     breadcrumbs,
     objects,
