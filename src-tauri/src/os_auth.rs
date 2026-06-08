@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use std::time::Duration;
 
 /// Verify the current OS user via platform-native authentication (biometric or password).
 pub fn verify_os_user(prompt: &str) -> Result<()> {
@@ -24,6 +23,7 @@ fn verify_macos(prompt: &str) -> Result<()> {
     use objc2_foundation::NSString;
     use objc2_local_authentication::{LAContext, LAPolicy};
     use std::sync::mpsc;
+    use std::time::Duration;
 
     let context: Retained<LAContext> = unsafe { LAContext::new() };
     let policy = LAPolicy::DeviceOwnerAuthentication;
@@ -56,7 +56,7 @@ fn verify_windows(prompt: &str) -> Result<()> {
     let message = HSTRING::from(prompt);
     let result = UserConsentVerifier::RequestVerificationAsync(&message)
         .map_err(|e| anyhow!("Windows Hello request failed: {e}"))?
-        .get()
+        .join()
         .map_err(|e| anyhow!("Windows Hello verification failed: {e}"))?;
 
     use windows::Security::Credentials::UI::UserConsentVerificationResult;
