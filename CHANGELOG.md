@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-06-08
+
+### Changed
+
+- README with UI screenshots and AI-assisted development contribution notes
+
 ## [0.7.0] - 2026-06-08
 
 ### Added
@@ -16,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Connection switching errors when changing active profiles
+- Windows Hello authentication for vault reset (IAsyncOperation::join)
 
 ### Changed
 
@@ -68,7 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transfer queue for uploads and downloads
 - Portable mode via `portable.txt` or `PAKER_PORTABLE=1`
 
-[Unreleased]: https://github.com/kkopanidis/paker/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/kkopanidis/paker/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/kkopanidis/paker/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/kkopanidis/paker/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kkopanidis/paker/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kkopanidis/paker/compare/v0.4.0...v0.5.0
