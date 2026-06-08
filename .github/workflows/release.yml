@@ -5,13 +5,20 @@ on:
     tags:
       - v*
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to rebuild (e.g. v0.6.0)
+        required: true
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.inputs.tag || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   release:
@@ -35,11 +42,23 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
+
+      - name: Set version from git tag
+        shell: bash
+        run: |
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Release tag must be vX.Y.Z, got ${RELEASE_TAG}"
+            exit 1
+          fi
+          node scripts/set-version-from-tag.mjs "${RELEASE_TAG}"
+          npm run version:sync -- --check
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -69,8 +88,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__
-          releaseName: Paker v__VERSION__
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: Paker ${{ env.RELEASE_TAG }}
           releaseBody: See CHANGELOG.md
           releaseDraft: true
           args: ${{ matrix.args }}
@@ -79,7 +98,7 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           $exe = "src-tauri/target/release/paker.exe"
           if (-not (Test-Path $exe)) {
             throw "Expected binary not found: $exe"
@@ -98,5 +117,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          gh release upload "${{ github.ref_name }}" "dist/Paker-${VERSION}-windows-portable.zip" --clobber
+          VERSION="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json','utf8')).version")"
+          gh release upload "${RELEASE_TAG}" "dist/Paker-${VERSION}-windows-portable.zip" --clobber
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "${RELEASE_TAG}" --draft=false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
