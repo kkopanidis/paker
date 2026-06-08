@@ -4,6 +4,7 @@ pub mod paths;
 pub mod profiles;
 pub mod secrets;
 pub mod ui_state;
+pub mod vault;
 
 pub use bucket_index::{bucket_index_job_id, BucketIndexMeta, BucketIndexProgress, IndexedObject};
 pub use object_cache::ObjectCacheManager;
@@ -12,3 +13,4 @@ pub use profiles::{
     SaveConnectionInput,
 };
 pub use secrets::{delete_secret, get_secret, get_session_token, set_secrets};
+pub use vault::{VaultManager, VaultStatus};

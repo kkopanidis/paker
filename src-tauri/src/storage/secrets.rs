@@ -1,4 +1,5 @@
 use super::paths;
+use super::vault::{read_vault_secrets, write_vault_secrets, VaultManager};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{anyhow, Context, Result};
@@ -9,7 +10,7 @@ use rand::RngCore;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 const PORTABLE_KEY_MATERIAL: &str = "paker-portable-v1";
 const PORTABLE_KEYRING_SEED_ENTRY: &str = "portable-file-key";
@@ -18,7 +19,7 @@ const PORTABLE_SALT_V2: &[u8] = b"paker-portable-salt-v2";
 const NONCE_LEN: usize = 12;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-struct ConnectionSecrets {
+pub(crate) struct ConnectionSecrets {
     secret_access_key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     session_token: Option<String>,
@@ -57,8 +58,8 @@ impl<'de> Deserialize<'de> for ConnectionSecrets {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
-struct SecretsFile {
-    secrets: HashMap<String, ConnectionSecrets>,
+pub(crate) struct SecretsFile {
+    pub(crate) secrets: HashMap<String, ConnectionSecrets>,
 }
 
 fn portable_keyring_seed_entry() -> Result<Entry> {
@@ -159,7 +160,7 @@ fn portable_encryption_key() -> Result<[u8; 32]> {
     }
 }
 
-fn encrypt_secrets_with_key(secrets: &SecretsFile, key: &[u8; 32]) -> Result<Vec<u8>> {
+pub(crate) fn encrypt_secrets_with_key(secrets: &SecretsFile, key: &[u8; 32]) -> Result<Vec<u8>> {
     let cipher = Aes256Gcm::new_from_slice(key).context("invalid AES key")?;
     let mut nonce_bytes = [0u8; NONCE_LEN];
     rand::rng().fill_bytes(&mut nonce_bytes);
@@ -177,7 +178,7 @@ fn encrypt_secrets_with_key(secrets: &SecretsFile, key: &[u8; 32]) -> Result<Vec
     Ok(output)
 }
 
-fn decrypt_secrets_with_key(data: &[u8], key: &[u8; 32]) -> Result<SecretsFile> {
+pub(crate) fn decrypt_secrets_with_key(data: &[u8], key: &[u8; 32]) -> Result<SecretsFile> {
     if data.len() <= NONCE_LEN {
         return Err(anyhow!("encrypted secrets file is too short"));
     }
@@ -228,7 +229,7 @@ fn decrypt_secrets(data: &[u8]) -> Result<(SecretsFile, bool)> {
     decrypt_secrets_with_keyring_seed(data, keyring_seed)
 }
 
-fn read_file_secrets(app: &AppHandle) -> Result<SecretsFile> {
+fn read_legacy_file_secrets(app: &AppHandle) -> Result<SecretsFile> {
     let path = paths::secrets_path(app)?;
     if !path.exists() {
         return Ok(SecretsFile::default());
@@ -237,16 +238,9 @@ fn read_file_secrets(app: &AppHandle) -> Result<SecretsFile> {
     let data = fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
     let (secrets, needs_reencrypt) = decrypt_secrets(&data)?;
     if needs_reencrypt {
-        write_file_secrets(app, &secrets)?;
+        write_legacy_file_secrets(app, &secrets)?;
     }
     Ok(secrets)
-}
-
-fn write_file_secrets(app: &AppHandle, secrets: &SecretsFile) -> Result<()> {
-    let path = paths::secrets_path(app)?;
-    paths::ensure_parent(&path)?;
-    let data = encrypt_secrets(secrets)?;
-    paths::write_private_file(&path, &data)
 }
 
 fn remove_file_secrets(app: &AppHandle) -> Result<()> {
@@ -305,19 +299,89 @@ fn use_file_storage_only() -> bool {
     paths::is_portable_mode()
 }
 
+fn vault_enabled(app: &AppHandle) -> bool {
+    app.try_state::<VaultManager>()
+        .map(|vault| vault.is_enabled())
+        .unwrap_or(false)
+}
+
+fn ensure_vault_access(app: &AppHandle) -> Result<()> {
+    if let Some(vault) = app.try_state::<VaultManager>() {
+        vault
+            .ensure_unlocked()
+            .map_err(anyhow::Error::new)?;
+    }
+    Ok(())
+}
+
+fn write_legacy_file_secrets(app: &AppHandle, secrets: &SecretsFile) -> Result<()> {
+    let path = paths::secrets_path(app)?;
+    paths::ensure_parent(&path)?;
+    if secrets.secrets.is_empty() {
+        if path.exists() {
+            fs::remove_file(&path)
+                .with_context(|| format!("failed to remove {}", path.display()))?;
+        }
+        return Ok(());
+    }
+    let data = encrypt_secrets(secrets)?;
+    paths::write_private_file(&path, &data)
+}
+
+/// Collect all connection secrets from legacy storage (portable file + keychain).
+pub(crate) fn collect_legacy_secrets(app: &AppHandle) -> Result<SecretsFile> {
+    let mut merged = read_legacy_file_secrets(app)?;
+    if !use_file_storage_only() {
+        for profile in super::profiles::list_connections(app)? {
+            if let Some(secrets) = read_keyring_secrets(&profile.id)? {
+                merged.secrets.insert(profile.id, secrets);
+            }
+        }
+    }
+    Ok(merged)
+}
+
+/// Remove per-connection keyring entries after vault migration.
+pub(crate) fn delete_all_keyring_secrets(app: &AppHandle, secrets: &SecretsFile) -> Result<()> {
+    if use_file_storage_only() {
+        return Ok(());
+    }
+    for connection_id in secrets.secrets.keys() {
+        delete_keyring_secret(connection_id)?;
+    }
+    remove_file_secrets(app)?;
+    Ok(())
+}
+
 fn get_connection_secrets(
     app: &AppHandle,
     connection_id: &str,
 ) -> Result<Option<ConnectionSecrets>> {
+    ensure_vault_access(app)?;
+
+    if vault_enabled(app) {
+        return Ok(read_vault_secrets(app)?.secrets.get(connection_id).cloned());
+    }
+
     if use_file_storage_only() {
-        return Ok(read_file_secrets(app)?.secrets.get(connection_id).cloned());
+        return Ok(
+            read_legacy_file_secrets(app)?
+                .secrets
+                .get(connection_id)
+                .cloned(),
+        );
     }
 
     if let Some(secrets) = read_keyring_secrets(connection_id)? {
         return Ok(Some(secrets));
     }
 
-    Ok(read_file_secrets(app)?.secrets.get(connection_id).cloned())
+    Ok(
+        read_legacy_file_secrets(app)?
+            .secrets
+            .get(connection_id)
+            .cloned(),
+    )
 }
 
 pub fn get_secret(app: &AppHandle, connection_id: &str) -> Result<Option<String>> {
@@ -334,15 +398,24 @@ pub fn set_secrets(
     secret_access_key: &str,
     session_token: Option<&str>,
 ) -> Result<()> {
+    ensure_vault_access(app)?;
+
     let entry = ConnectionSecrets {
         secret_access_key: secret_access_key.to_string(),
         session_token: session_token.map(|s| s.to_string()),
     };
 
-    if use_file_storage_only() {
-        let mut secrets = read_file_secrets(app)?;
+    if vault_enabled(app) {
+        let mut secrets = read_vault_secrets(app)?;
         secrets.secrets.insert(connection_id.to_string(), entry);
-        write_file_secrets(app, &secrets)?;
+        write_vault_secrets(app, &secrets)?;
+        return Ok(());
+    }
+
+    if use_file_storage_only() {
+        let mut secrets = read_legacy_file_secrets(app)?;
+        secrets.secrets.insert(connection_id.to_string(), entry);
+        write_legacy_file_secrets(app, &secrets)?;
         return Ok(());
     }
 
@@ -350,27 +423,28 @@ pub fn set_secrets(
 }
 
 pub fn delete_secret(app: &AppHandle, connection_id: &str) -> Result<()> {
+    ensure_vault_access(app)?;
+
+    if vault_enabled(app) {
+        let mut secrets = read_vault_secrets(app)?;
+        secrets.secrets.remove(connection_id);
+        write_vault_secrets(app, &secrets)?;
+        return Ok(());
+    }
+
     if use_file_storage_only() {
-        let mut secrets = read_file_secrets(app)?;
+        let mut secrets = read_legacy_file_secrets(app)?;
         if secrets.secrets.remove(connection_id).is_some() {
-            if secrets.secrets.is_empty() {
-                remove_file_secrets(app)?;
-            } else {
-                write_file_secrets(app, &secrets)?;
-            }
+            write_legacy_file_secrets(app, &secrets)?;
         }
         return Ok(());
     }
 
     delete_keyring_secret(connection_id)?;
 
-    let mut secrets = read_file_secrets(app)?;
+    let mut secrets = read_legacy_file_secrets(app)?;
     if secrets.secrets.remove(connection_id).is_some() {
-        if secrets.secrets.is_empty() {
-            remove_file_secrets(app)?;
-        } else {
-            write_file_secrets(app, &secrets)?;
-        }
+        write_legacy_file_secrets(app, &secrets)?;
     }
 
     Ok(())
@@ -382,7 +456,7 @@ pub fn migrate_legacy_secrets(app: &AppHandle) -> Result<()> {
         return Ok(());
     }
 
-    let mut file_secrets = read_file_secrets(app)?;
+    let mut file_secrets = read_legacy_file_secrets(app)?;
     if file_secrets.secrets.is_empty() {
         return Ok(());
     }
@@ -404,7 +478,7 @@ pub fn migrate_legacy_secrets(app: &AppHandle) -> Result<()> {
     if file_secrets.secrets.is_empty() {
         remove_file_secrets(app)?;
     } else {
-        write_file_secrets(app, &file_secrets)?;
+        write_legacy_file_secrets(app, &file_secrets)?;
     }
 
     Ok(())

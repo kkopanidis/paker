@@ -1,6 +1,7 @@
 mod commands;
 mod error;
 mod index;
+mod os_auth;
 mod path_safety;
 mod s3;
 mod storage;
@@ -12,7 +13,7 @@ pub use error::PakerError;
 
 use commands::local_fs::LocalFsScope;
 use index::BucketIndexManager;
-use storage::ObjectCacheManager;
+use storage::{ObjectCacheManager, VaultManager};
 use tauri::Manager;
 use transfer::TransferManager;
 
@@ -36,6 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(TransferManager::default())
         .manage(BucketIndexManager::default())
+        .manage(VaultManager::default())
         .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
             let scope = LocalFsScope::new().map_err(|e| {
                 tracing::error!(error = %e, "failed to initialize local FS scope");
@@ -43,7 +45,13 @@ pub fn run() {
             })?;
             app.manage(scope);
 
-            if !storage::paths::is_portable_mode() {
+            let vault = app.state::<VaultManager>();
+            vault.load_from_disk(app.handle()).map_err(|e| {
+                tracing::error!(error = %e, "failed to load vault metadata");
+                PakerError::Internal
+            })?;
+
+            if !storage::paths::is_portable_mode() && !vault.is_enabled() {
                 let _ = keyring::use_native_store(false);
                 storage::secrets::migrate_legacy_secrets(app.handle()).map_err(|e| {
                     tracing::error!(error = %e, "failed to migrate legacy secrets");

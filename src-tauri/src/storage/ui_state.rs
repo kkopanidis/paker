@@ -35,6 +35,8 @@ pub struct UiPreferences {
     pub buckets_collapsed: bool,
     #[serde(default = "default_true")]
     pub check_for_updates: bool,
+    #[serde(default)]
+    pub vault_prompt_dismissed: bool,
 }
 
 fn default_details_open() -> bool {
@@ -204,5 +206,15 @@ pub fn set_panel_layout(app: &AppHandle, mode: &str, layout: HashMap<String, f64
         "four" => state.panel_layout_four = Some(layout),
         other => anyhow::bail!("invalid panel layout mode: {other}"),
     }
+    write_state(app, &state)
+}
+
+pub fn get_vault_prompt_dismissed(app: &AppHandle) -> Result<bool> {
+    Ok(read_state(app)?.preferences.vault_prompt_dismissed)
+}
+
+pub fn set_vault_prompt_dismissed(app: &AppHandle, dismissed: bool) -> Result<()> {
+    let mut state = read_state(app)?;
+    state.preferences.vault_prompt_dismissed = dismissed;
     write_state(app, &state)
 }
