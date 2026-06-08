@@ -56,6 +56,7 @@ import { cn } from "@/lib/utils";
 import type { ObjectHeadResponse, PrefixSizeResult, S3Object } from "@/types/s3";
 import type { PrefixBookmark } from "@/types/ui";
 import { LocalPanelToggle } from "./LocalPanelToggle";
+import { SecurityToggle } from "./SecurityToggle";
 import { ThemeToggle } from "./ThemeToggle";
 import { UpdateBanner } from "./UpdateBanner";
 
@@ -685,6 +686,7 @@ export function AppShell() {
         </div>
         <div className="flex items-center gap-1">
           <LocalPanelToggle open={localPanelOpen} onToggle={handleLocalPanelToggle} />
+          <SecurityToggle />
           <ThemeToggle />
         </div>
       </header>

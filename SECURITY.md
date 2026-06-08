@@ -32,6 +32,8 @@ Reports we treat as security-relevant for Paker include:
 - **Local filesystem IPC** — bypass of `LocalFsScope` via upload, download, export, or preview-open commands (reading or writing paths outside allowed directories)
 - **File permissions** — sensitive files (`secrets.enc`, `connections.json`, `ui_state.json`) world-readable on Unix when the app should restrict access to the owner. On Unix, Paker writes these with mode `0o600` (owner read/write only). On Windows, portable `./data/` files rely on NTFS ACLs inherited from the parent directory; the app does not set a Unix-style permission mask.
 - **Portable KDF** — `secrets.enc` encrypted with only the legacy static KDF (v1) can be decrypted offline by anyone with the file. When a per-host keyring seed is present, portable mode uses KDF v2 (Argon2id over keyring seed + static material); in that case `secrets.enc` alone is **not** sufficient to recover credentials without the seed stored in the OS keychain on the same machine.
+- **Vault master key** — when enabled, connection secrets are encrypted with a random `vault_key` wrapped by the user's master password (Argon2id). Only a password verifier and wrapped key are stored on disk; the master password is never persisted. Unlock attempts are rate-limited. OS-authenticated reset reads escrow from keychain after platform user verification.
+- **Vault lock** — while locked, secret read/write paths return `vaultLocked` over IPC; preview cache is cleared on lock.
 
 ## Out of scope
 

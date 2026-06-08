@@ -19,6 +19,20 @@ In portable mode (`portable.txt` or `PAKER_PORTABLE=1`), connection secrets live
 
 **Limitation:** Legacy v1 blobs are offline-decryptable given `secrets.enc`. With v2, `secrets.enc` alone is not enough—the per-host keyring seed on the same machine is also required. On read, v1 blobs are transparently re-encrypted to v2 when the keyring seed is available.
 
+### Optional vault (master key)
+
+Users may optionally enable a **vault** with a user-chosen master key. When enabled:
+
+| Artifact | Role |
+|----------|------|
+| `vault.meta` | Argon2id verifier, wrapped `vault_key`, auto-lock preferences |
+| `secrets.enc` | All connection secrets encrypted with random 32-byte `vault_key` (AES-256-GCM) |
+| Keychain `paker` / `vault-recovery` | Escrow wrap of `vault_key` for OS-authenticated master key reset |
+
+When the vault is **locked** (startup, idle timeout, blur, or manual lock), Rust refuses secret read/write IPC until unlock. Users who skip vault setup keep the legacy portable/keychain paths above.
+
+**Recovery:** macOS and Windows support OS user verification (Touch ID / Windows Hello / device password) to reset the master key via keychain escrow. Linux and portable installs without keyring have no OS recovery path.
+
 Sensitive files under `./data/` use mode `0o600` on Unix. On Windows portable installs, access control follows NTFS ACLs on the data directory rather than a Unix permission bitmask.
 
 ```

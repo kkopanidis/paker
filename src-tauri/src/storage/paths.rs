@@ -52,6 +52,10 @@ pub fn secrets_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("secrets.enc"))
 }
 
+pub fn vault_meta_path(app: &AppHandle) -> Result<PathBuf> {
+    Ok(data_dir(app)?.join("vault.meta"))
+}
+
 pub fn ui_state_path(app: &AppHandle) -> Result<PathBuf> {
     Ok(data_dir(app)?.join("ui_state.json"))
 }

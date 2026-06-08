@@ -26,6 +26,12 @@ pub enum PakerError {
     TransferNotFound,
     #[error("An internal error occurred")]
     Internal,
+    #[error("Vault is locked — enter your master key to continue")]
+    VaultLocked,
+    #[error("Master key verification failed")]
+    VaultAuthFailed,
+    #[error("Vault unlock is temporarily blocked — try again later")]
+    VaultUnlockBlocked,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,6 +56,9 @@ impl PakerError {
             Self::IndexNotReady => "indexNotReady",
             Self::TransferNotFound => "transferNotFound",
             Self::Internal => "internal",
+            Self::VaultLocked => "vaultLocked",
+            Self::VaultAuthFailed => "vaultAuthFailed",
+            Self::VaultUnlockBlocked => "vaultUnlockBlocked",
         }
     }
 
@@ -77,6 +86,13 @@ impl PakerError {
             }
             Self::TransferNotFound => None,
             Self::Internal => Some("Try again. If the problem persists, restart the app."),
+            Self::VaultLocked => Some("Unlock the vault from the lock screen."),
+            Self::VaultAuthFailed => {
+                Some("Check your master key or use OS recovery if you forgot it.")
+            }
+            Self::VaultUnlockBlocked => {
+                Some("Wait for the cooldown period before trying again.")
+            }
         }
     }
 

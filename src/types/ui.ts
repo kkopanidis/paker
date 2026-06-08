@@ -16,6 +16,7 @@ export interface UiPreferences {
   connectionsCollapsed: boolean;
   bucketsCollapsed: boolean;
   checkForUpdates: boolean;
+  vaultPromptDismissed?: boolean;
 }
 
 export interface UpdateInfo {

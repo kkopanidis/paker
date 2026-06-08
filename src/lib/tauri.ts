@@ -74,6 +74,12 @@ export function formatIpcError(error: unknown): string {
 }
 import type { S3Connection, S3ConnectionInput } from "@/types/connection";
 import type {
+  ChangeMasterKeyInput,
+  SetupVaultInput,
+  SetVaultPreferencesInput,
+  VaultStatus,
+} from "@/types/vault";
+import type {
   BucketIndexMeta,
   BucketInfo,
   BucketMetadata,
@@ -500,4 +506,48 @@ export function checkForUpdate(): Promise<UpdateInfo> {
 
 export function openPreviewFile(path: string): Promise<void> {
   return invokeSafe<void>("open_preview_file", { path });
+}
+
+export function getVaultStatus(): Promise<VaultStatus> {
+  return invokeSafe<VaultStatus>("get_vault_status");
+}
+
+export function setupVault(input: SetupVaultInput): Promise<void> {
+  return invokeSafe<void>("setup_vault", {
+    masterPassword: input.masterPassword,
+    autoLockMinutes: input.autoLockMinutes ?? 15,
+    lockOnBlur: input.lockOnBlur ?? false,
+  });
+}
+
+export function unlockVault(masterPassword: string): Promise<void> {
+  return invokeSafe<void>("unlock_vault", { masterPassword });
+}
+
+export function lockVault(): Promise<void> {
+  return invokeSafe<void>("lock_vault");
+}
+
+export function changeMasterKey(input: ChangeMasterKeyInput): Promise<void> {
+  return invokeSafe<void>("change_master_key", { ...input });
+}
+
+export function resetMasterKeyWithOsAuth(newPassword: string): Promise<void> {
+  return invokeSafe<void>("reset_master_key_with_os_auth", { newPassword });
+}
+
+export function setVaultPreferences(input: SetVaultPreferencesInput): Promise<void> {
+  return invokeSafe<void>("set_vault_preferences", { ...input });
+}
+
+export function recordVaultActivity(): Promise<void> {
+  return invokeSafe<void>("record_vault_activity");
+}
+
+export function dismissVaultPrompt(): Promise<void> {
+  return invokeSafe<void>("dismiss_vault_prompt");
+}
+
+export function getVaultPromptDismissed(): Promise<boolean> {
+  return invokeSafe<boolean>("get_vault_prompt_dismissed");
 }

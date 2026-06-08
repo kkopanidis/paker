@@ -4,6 +4,7 @@ pub mod local_fs;
 pub mod s3_ops;
 pub mod ui_state;
 pub mod update;
+pub mod vault;
 
 /// Register all Tauri IPC command handlers (split by domain for maintainability).
 macro_rules! app_commands {
@@ -61,6 +62,16 @@ macro_rules! app_commands {
             $crate::commands::bucket_index::search_bucket_index,
             $crate::commands::bucket_index::export_bucket_index_csv,
             $crate::commands::update::check_for_update,
+            $crate::commands::vault::get_vault_status,
+            $crate::commands::vault::setup_vault,
+            $crate::commands::vault::unlock_vault,
+            $crate::commands::vault::lock_vault,
+            $crate::commands::vault::change_master_key,
+            $crate::commands::vault::reset_master_key_with_os_auth,
+            $crate::commands::vault::set_vault_preferences,
+            $crate::commands::vault::record_vault_activity,
+            $crate::commands::vault::dismiss_vault_prompt,
+            $crate::commands::vault::get_vault_prompt_dismissed,
         ]
     };
 }
