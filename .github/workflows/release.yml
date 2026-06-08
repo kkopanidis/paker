@@ -57,6 +57,10 @@ jobs:
             echo "::error::Release tag must be vX.Y.Z, got ${RELEASE_TAG}"
             exit 1
           fi
+          if [[ ! -f scripts/set-version-from-tag.mjs ]]; then
+            git fetch origin main --depth=1
+            git checkout origin/main -- scripts/set-version-from-tag.mjs
+          fi
           node scripts/set-version-from-tag.mjs "${RELEASE_TAG}"
           npm run version:sync -- --check
 
