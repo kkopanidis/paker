@@ -1,7 +1,7 @@
 use super::paths;
 use super::secrets::{
-    collect_legacy_secrets, delete_all_keyring_secrets, encrypt_secrets_with_key,
-    decrypt_secrets_with_key, SecretsFile,
+    collect_legacy_secrets, decrypt_secrets_with_key, delete_all_keyring_secrets,
+    encrypt_secrets_with_key, SecretsFile,
 };
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
@@ -102,8 +102,7 @@ impl VaultManager {
 
         let raw = fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
-        let meta: VaultMeta =
-            serde_json::from_str(&raw).context("failed to parse vault.meta")?;
+        let meta: VaultMeta = serde_json::from_str(&raw).context("failed to parse vault.meta")?;
         if !meta.enabled {
             state.meta = Some(meta);
             state.locked = false;
@@ -119,11 +118,7 @@ impl VaultManager {
     }
 
     pub fn is_enabled(&self) -> bool {
-        self.inner
-            .lock()
-            .meta
-            .as_ref()
-            .is_some_and(|m| m.enabled)
+        self.inner.lock().meta.as_ref().is_some_and(|m| m.enabled)
     }
 
     pub fn is_locked(&self) -> bool {
@@ -178,10 +173,7 @@ impl VaultManager {
             return false;
         }
         let state = self.inner.lock();
-        state
-            .last_activity
-            .elapsed()
-            >= Duration::from_secs(u64::from(auto_lock_minutes) * 60)
+        state.last_activity.elapsed() >= Duration::from_secs(u64::from(auto_lock_minutes) * 60)
     }
 
     pub fn lock(&self, app: &AppHandle) -> Result<()> {
@@ -215,8 +207,11 @@ impl VaultManager {
 
         let verifier_salt = SaltString::generate(&mut argon2_os_rng());
         let verifier_hash = hash_master_password(master_password, &verifier_salt)?;
-        let wrapped_vault_key =
-            wrap_vault_key(&vault_key, master_password, verifier_salt.as_salt().as_str())?;
+        let wrapped_vault_key = wrap_vault_key(
+            &vault_key,
+            master_password,
+            verifier_salt.as_salt().as_str(),
+        )?;
 
         write_vault_secrets_file(app, &legacy, &vault_key)?;
         delete_all_keyring_secrets(app, &legacy)?;
@@ -250,7 +245,11 @@ impl VaultManager {
         Ok(())
     }
 
-    pub fn unlock(&self, app: &AppHandle, master_password: &str) -> Result<(), crate::error::PakerError> {
+    pub fn unlock(
+        &self,
+        app: &AppHandle,
+        master_password: &str,
+    ) -> Result<(), crate::error::PakerError> {
         if let Some(until) = self.inner.lock().unlock_blocked_until {
             if Instant::now() < until {
                 return Err(crate::error::PakerError::VaultUnlockBlocked);
@@ -265,12 +264,9 @@ impl VaultManager {
             .filter(|m| m.enabled)
             .ok_or(crate::error::PakerError::VaultAuthFailed)?;
 
-        let verified = verify_master_password(
-            master_password,
-            &meta.verifier_salt,
-            &meta.verifier_hash,
-        )
-        .unwrap_or(false);
+        let verified =
+            verify_master_password(master_password, &meta.verifier_salt, &meta.verifier_hash)
+                .unwrap_or(false);
         if !verified {
             self.register_failed_unlock();
             return Err(crate::error::PakerError::VaultAuthFailed);
@@ -313,12 +309,8 @@ impl VaultManager {
                 .filter(|m| m.enabled)
                 .ok_or(crate::error::PakerError::VaultAuthFailed)?;
 
-            if !verify_master_password(
-                current_password,
-                &meta.verifier_salt,
-                &meta.verifier_hash,
-            )
-            .map_err(|_| crate::error::PakerError::VaultAuthFailed)?
+            if !verify_master_password(current_password, &meta.verifier_salt, &meta.verifier_hash)
+                .map_err(|_| crate::error::PakerError::VaultAuthFailed)?
             {
                 return Err(crate::error::PakerError::VaultAuthFailed);
             }
@@ -353,8 +345,7 @@ impl VaultManager {
             meta.clone()
         };
         write_vault_meta(app, &meta_clone).map_err(|_| crate::error::PakerError::Internal)?;
-        store_recovery_escrow(&vault_key_bytes)
-            .map_err(|_| crate::error::PakerError::Internal)?;
+        store_recovery_escrow(&vault_key_bytes).map_err(|_| crate::error::PakerError::Internal)?;
         tracing::info!("vault master key changed");
         Ok(())
     }
@@ -381,12 +372,9 @@ impl VaultManager {
         let verifier_salt = SaltString::generate(&mut argon2_os_rng());
         let verifier_hash = hash_master_password(new_password, &verifier_salt)
             .map_err(|_| crate::error::PakerError::Internal)?;
-        let wrapped_vault_key = wrap_vault_key(
-            &vault_key,
-            new_password,
-            verifier_salt.as_salt().as_str(),
-        )
-        .map_err(|_| crate::error::PakerError::Internal)?;
+        let wrapped_vault_key =
+            wrap_vault_key(&vault_key, new_password, verifier_salt.as_salt().as_str())
+                .map_err(|_| crate::error::PakerError::Internal)?;
 
         let mut state = self.inner.lock();
         let meta = state
@@ -418,13 +406,9 @@ impl VaultManager {
         lock_on_blur: bool,
     ) -> Result<(), crate::error::PakerError> {
         let mut state = self.inner.lock();
-        let meta = state
-            .meta
-            .as_mut()
-            .filter(|m| m.enabled)
-            .ok_or(crate::error::PakerError::InvalidInput(
-                "Vault is not enabled".to_string(),
-            ))?;
+        let meta = state.meta.as_mut().filter(|m| m.enabled).ok_or(
+            crate::error::PakerError::InvalidInput("Vault is not enabled".to_string()),
+        )?;
         meta.auto_lock_minutes = auto_lock_minutes;
         meta.lock_on_blur = lock_on_blur;
         let meta_clone = meta.clone();
@@ -530,9 +514,7 @@ fn hash_master_password(password: &str, salt: &SaltString) -> Result<String> {
 fn verify_master_password(password: &str, _salt_b64: &str, hash_b64: &str) -> Result<bool> {
     let argon2 = argon2_instance()?;
     let parsed = PasswordHash::new(hash_b64).map_err(|e| anyhow!("invalid hash: {e}"))?;
-    Ok(argon2
-        .verify_password(password.as_bytes(), &parsed)
-        .is_ok())
+    Ok(argon2.verify_password(password.as_bytes(), &parsed).is_ok())
 }
 
 fn derive_wrap_key(password: &str, salt: &str) -> Result<[u8; 32]> {

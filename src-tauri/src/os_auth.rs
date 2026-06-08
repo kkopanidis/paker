@@ -28,14 +28,18 @@ fn verify_macos(prompt: &str) -> Result<()> {
     let context: Retained<LAContext> = unsafe { LAContext::new() };
     let policy = LAPolicy::DeviceOwnerAuthentication;
     if unsafe { context.canEvaluatePolicy_error(policy) }.is_err() {
-        return Err(anyhow!("device authentication is not available on this Mac"));
+        return Err(anyhow!(
+            "device authentication is not available on this Mac"
+        ));
     }
 
     let (tx, rx) = mpsc::channel();
     let prompt_ns = NSString::from_str(prompt);
-    let block = RcBlock::new(move |success: Bool, _error: *mut objc2_foundation::NSError| {
-        let _ = tx.send(success == Bool::YES);
-    });
+    let block = RcBlock::new(
+        move |success: Bool, _error: *mut objc2_foundation::NSError| {
+            let _ = tx.send(success == Bool::YES);
+        },
+    );
 
     unsafe {
         context.evaluatePolicy_localizedReason_reply(policy, &prompt_ns, &block);

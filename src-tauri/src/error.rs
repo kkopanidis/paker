@@ -90,9 +90,7 @@ impl PakerError {
             Self::VaultAuthFailed => {
                 Some("Check your master key or use OS recovery if you forgot it.")
             }
-            Self::VaultUnlockBlocked => {
-                Some("Wait for the cooldown period before trying again.")
-            }
+            Self::VaultUnlockBlocked => Some("Wait for the cooldown period before trying again."),
         }
     }
 

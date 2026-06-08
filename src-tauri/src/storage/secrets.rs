@@ -307,9 +307,7 @@ fn vault_enabled(app: &AppHandle) -> bool {
 
 fn ensure_vault_access(app: &AppHandle) -> Result<()> {
     if let Some(vault) = app.try_state::<VaultManager>() {
-        vault
-            .ensure_unlocked()
-            .map_err(anyhow::Error::new)?;
+        vault.ensure_unlocked().map_err(anyhow::Error::new)?;
     }
     Ok(())
 }
@@ -364,24 +362,20 @@ fn get_connection_secrets(
     }
 
     if use_file_storage_only() {
-        return Ok(
-            read_legacy_file_secrets(app)?
-                .secrets
-                .get(connection_id)
-                .cloned(),
-        );
+        return Ok(read_legacy_file_secrets(app)?
+            .secrets
+            .get(connection_id)
+            .cloned());
     }
 
     if let Some(secrets) = read_keyring_secrets(connection_id)? {
         return Ok(Some(secrets));
     }
 
-    Ok(
-        read_legacy_file_secrets(app)?
-            .secrets
-            .get(connection_id)
-            .cloned(),
-    )
+    Ok(read_legacy_file_secrets(app)?
+        .secrets
+        .get(connection_id)
+        .cloned())
 }
 
 pub fn get_secret(app: &AppHandle, connection_id: &str) -> Result<Option<String>> {

@@ -124,6 +124,5 @@ pub async fn dismiss_vault_prompt(app: AppHandle) -> Result<(), PakerError> {
 
 #[tauri::command]
 pub async fn get_vault_prompt_dismissed(app: AppHandle) -> Result<bool, PakerError> {
-    crate::storage::ui_state::get_vault_prompt_dismissed(&app)
-        .map_err(|_| PakerError::Internal)
+    crate::storage::ui_state::get_vault_prompt_dismissed(&app).map_err(|_| PakerError::Internal)
 }
