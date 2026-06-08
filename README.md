@@ -59,7 +59,7 @@ The main window is a horizontal split of resizable panels:
 
 ## Requirements
 
-- [Node.js](https://nodejs.org/) 22+
+- [Node.js](https://nodejs.org/) 24+
 - [Rust](https://rustup.rs/) stable
 - Platform WebView (WebKit on macOS, WebView2 on Windows, WebKitGTK on Linux)
 

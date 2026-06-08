@@ -4,11 +4,11 @@ Thank you for your interest in contributing. This guide covers local setup, work
 
 ## Development setup
 
-1. Install [Node.js](https://nodejs.org/) 22+ and [Rust](https://rustup.rs/) stable.
+1. Install [Node.js](https://nodejs.org/) 24+ and [Rust](https://rustup.rs/) stable.
 2. Clone the repository and install dependencies:
 
 ```bash
-nvm use 22
+nvm use 24
 npm install
 npm run tauri dev
 ```
