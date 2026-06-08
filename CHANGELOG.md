@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-08
+
+### Added
+
+- Optional master key vault — encrypt connection secrets behind a master password with idle and blur auto-lock, plus OS-authenticated reset
+
+### Fixed
+
+- Connection switching errors when changing active profiles
+
+### Changed
+
+- Updated Node.js (24) and dependency versions across frontend and Rust toolchain
+
+## [0.6.0] - 2026-06-08
+
+### Added
+
+- In-app update awareness via GitHub releases
+- Portable secrets KDF v2 with automatic migration from legacy format
+
+### Changed
+
+- Security hardening — filesystem path scoping on uploads, downloads, and exports; CSP; keychain-primary secrets storage; structured IPC error messages
+- CI and release workflow improvements
+
 ## [0.5.0] - 2026-06-07
 
 ### Added
@@ -42,7 +68,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transfer queue for uploads and downloads
 - Portable mode via `portable.txt` or `PAKER_PORTABLE=1`
 
-[Unreleased]: https://github.com/kkopanidis/paker/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/kkopanidis/paker/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/kkopanidis/paker/compare/v0.6.0...v0.7.0
+[0.6.0]: https://github.com/kkopanidis/paker/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kkopanidis/paker/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kkopanidis/paker/compare/v0.1.0...v0.4.0
 [0.1.0]: https://github.com/kkopanidis/paker/releases/tag/v0.1.0
