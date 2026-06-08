@@ -48,6 +48,12 @@ Before opening a PR:
 
 Keep PRs focused; prefer several small PRs over one large mixed change.
 
+### AI-assisted work
+
+AI-assisted contributions are welcome when the contributor owns the result. Review generated code before submitting it, keep the final diff understandable, cite trade-offs where relevant, and run the same checks as any other change.
+
+Do not commit private prompts, agent transcripts, local editor configuration, secrets, or other machine-local artifacts.
+
 ### CI concurrency
 
 CI uses workflow concurrency with `cancel-in-progress: true` on each branch. Rapid merges to `main` cancel any still-running CI for the same ref, so only the latest commit is validated. This is expected — if your push was superseded, check the workflow run for the newest commit instead.

@@ -6,9 +6,11 @@
 
 A modern, cross-platform desktop browser for S3-compatible storage. Built with Tauri 2, React, and the Rust AWS SDK.
 
-<!-- Screenshots: add docs/images/ when available -->
+## Screenshots
 
-*Screenshots coming soon.*
+![Paker main window — connections, buckets, and remote browser](docs/images/main-window.png)
+
+![Paker dual-pane mode — local and remote filesystem side by side](docs/images/dual-pane.png)
 
 ## Features
 
@@ -108,6 +110,12 @@ Shortcuts apply to the remote browser when it is focused and you are not typing 
 | F2 | Rename selected object |
 | ? | Show keyboard shortcuts help |
 | ⌘/ / Ctrl+/ | Show keyboard shortcuts help |
+
+## Development note
+
+Paker is built with AI-assisted development tools as part of a human-directed workflow. Product decisions, architecture, security boundaries, testing, release management, and ongoing maintenance are owned by the maintainer.
+
+AI is used as an implementation accelerator, not as a substitute for review or accountability.
 
 ## Community
 
