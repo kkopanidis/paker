@@ -54,25 +54,36 @@ CI uses workflow concurrency with `cancel-in-progress: true` on each branch. Rap
 
 ## Version and release process
 
-Versions are tracked in `src-tauri/tauri.conf.json` (source of truth for the app bundle).
+**The git tag is the source of truth for a release.** The release workflow reads `vX.Y.Z` from the pushed tag, writes that version into the project files, builds, and uploads all artifacts to that tag's GitHub Release.
 
-1. Bump the `version` field in `src-tauri/tauri.conf.json`.
-2. Sync the npm package version:
+### Cut a release
 
-```bash
-npm run version:sync
-```
-
-3. Add a dated entry under `[Unreleased]` → new version section in [CHANGELOG.md](CHANGELOG.md) ([Keep a Changelog](https://keepachangelog.com/) format).
-4. Commit the version bump and changelog on `main` (or merge via PR).
-5. Create and push an annotated tag:
+1. Merge the changes you want to ship to `main`.
+2. Add a dated entry under `[Unreleased]` → new version section in [CHANGELOG.md](CHANGELOG.md) ([Keep a Changelog](https://keepachangelog.com/) format).
+3. Create and push a tag on the commit to ship:
 
 ```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Pushing a `v*` tag triggers the release workflow, which builds platform artifacts and publishes a GitHub Release.
+Pushing a `v*` tag triggers the [release workflow](.github/workflows/release.yml), which syncs the tag version into `src-tauri/tauri.conf.json` (and related files), builds platform artifacts, and publishes a GitHub Release when all jobs finish.
+
+To rebuild an existing tag without re-pushing, use **Actions → Release → Run workflow** and enter the tag (e.g. `v0.6.0`).
+
+### After a release (optional housekeeping)
+
+Bump `src-tauri/tauri.conf.json` to the next development version on `main`, then sync:
+
+```bash
+npm run version:sync
+```
+
+This keeps local and CI dev builds on the upcoming version; it does not affect binaries already shipped under the release tag.
+
+### Local version sync
+
+`npm run version:sync` propagates the version from `src-tauri/tauri.conf.json` to `package.json`, `package-lock.json`, and `Cargo.toml`. Use this after editing the dev version on `main`, not when cutting a release (CI sets the version from the tag).
 
 ## Code style
 
