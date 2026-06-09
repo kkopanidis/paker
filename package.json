@@ -20,7 +20,8 @@
     "version:sync": "node scripts/sync-version.mjs",
     "version:from-tag": "node scripts/set-version-from-tag.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.1.16",
@@ -56,6 +57,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/coverage-v8": "^4.1.8",
     "jsdom": "^29.1.1",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",

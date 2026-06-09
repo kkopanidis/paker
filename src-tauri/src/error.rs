@@ -146,19 +146,7 @@ where
         SdkError::ConstructionFailure(_) => PakerError::Internal,
         SdkError::ResponseError(_) => PakerError::Network,
         SdkError::ServiceError(service_err) => {
-            let code = service_err.err().to_string();
-            if code.contains("NoSuchBucket") || code.contains("NotFound") {
-                PakerError::BucketNotFound
-            } else if code.contains("AccessDenied")
-                || code.contains("Forbidden")
-                || code.contains("InvalidAccessKeyId")
-                || code.contains("SignatureDoesNotMatch")
-                || code.contains("AllAccessDisabled")
-            {
-                PakerError::AccessDenied
-            } else {
-                PakerError::Internal
-            }
+            map_s3_service_error_message(&service_err.err().to_string())
         }
         _ => PakerError::Internal,
     }
@@ -173,7 +161,156 @@ pub fn into_ipc_error(err: impl Into<anyhow::Error>) -> PakerError {
     PakerError::Internal
 }
 
+fn map_s3_service_error_message(message: &str) -> PakerError {
+    if message.contains("NoSuchBucket") || message.contains("NotFound") {
+        PakerError::BucketNotFound
+    } else if message.contains("AccessDenied")
+        || message.contains("Forbidden")
+        || message.contains("InvalidAccessKeyId")
+        || message.contains("SignatureDoesNotMatch")
+        || message.contains("AllAccessDisabled")
+    {
+        PakerError::AccessDenied
+    } else {
+        PakerError::Internal
+    }
+}
+
 /// Clamp presigned URL expiry to 60 seconds .. 7 days.
 pub fn clamp_presign_expiry_secs(expires_secs: u64) -> u64 {
     expires_secs.clamp(60, 604_800)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn all_variants() -> Vec<PakerError> {
+        vec![
+            PakerError::ConnectionNotFound,
+            PakerError::BucketNotFound,
+            PakerError::AccessDenied,
+            PakerError::Network,
+            PakerError::InvalidInput("bad".to_string()),
+            PakerError::InvalidEndpoint,
+            PakerError::PathNotAllowed,
+            PakerError::IndexNotReady,
+            PakerError::TransferNotFound,
+            PakerError::Internal,
+            PakerError::VaultLocked,
+            PakerError::VaultAuthFailed,
+            PakerError::VaultUnlockBlocked,
+        ]
+    }
+
+    #[test]
+    fn code_returns_stable_ipc_codes() {
+        let expected = [
+            ("connectionNotFound", PakerError::ConnectionNotFound),
+            ("bucketNotFound", PakerError::BucketNotFound),
+            ("accessDenied", PakerError::AccessDenied),
+            ("network", PakerError::Network),
+            ("invalidInput", PakerError::InvalidInput("x".into())),
+            ("invalidEndpoint", PakerError::InvalidEndpoint),
+            ("pathNotAllowed", PakerError::PathNotAllowed),
+            ("indexNotReady", PakerError::IndexNotReady),
+            ("transferNotFound", PakerError::TransferNotFound),
+            ("internal", PakerError::Internal),
+            ("vaultLocked", PakerError::VaultLocked),
+            ("vaultAuthFailed", PakerError::VaultAuthFailed),
+            ("vaultUnlockBlocked", PakerError::VaultUnlockBlocked),
+        ];
+        for (code, err) in expected {
+            assert_eq!(err.code(), code);
+        }
+    }
+
+    #[test]
+    fn user_action_is_none_only_for_selected_variants() {
+        assert!(PakerError::InvalidInput("x".into()).user_action().is_none());
+        assert!(PakerError::TransferNotFound.user_action().is_none());
+        for err in all_variants() {
+            if matches!(
+                err,
+                PakerError::InvalidInput(_) | PakerError::TransferNotFound
+            ) {
+                continue;
+            }
+            assert!(
+                err.user_action().is_some(),
+                "{err:?} should include user_action"
+            );
+        }
+    }
+
+    #[test]
+    fn into_ipc_error_preserves_paker_error() {
+        let original = PakerError::BucketNotFound;
+        let mapped = into_ipc_error(anyhow::Error::new(original.clone()));
+        assert_eq!(mapped.code(), original.code());
+        assert_eq!(mapped.to_string(), original.to_string());
+    }
+
+    #[test]
+    fn into_ipc_error_maps_unknown_errors_to_internal() {
+        let mapped = into_ipc_error(anyhow::anyhow!("boom"));
+        assert!(matches!(mapped, PakerError::Internal));
+    }
+
+    #[test]
+    fn serialize_includes_camel_case_user_action() {
+        let err = PakerError::AccessDenied;
+        let value = serde_json::to_value(&err).expect("serialize");
+        assert_eq!(value["code"], "accessDenied");
+        assert_eq!(value["userAction"], json!(err.user_action().unwrap()));
+        assert!(value["message"].is_string());
+    }
+
+    #[test]
+    fn validate_endpoint_url_accepts_empty_and_http_https() {
+        assert!(validate_endpoint_url("").is_ok());
+        assert!(validate_endpoint_url("  ").is_ok());
+        assert!(validate_endpoint_url("https://s3.amazonaws.com").is_ok());
+        assert!(validate_endpoint_url("http://localhost:9000").is_ok());
+    }
+
+    #[test]
+    fn validate_endpoint_url_rejects_invalid_urls() {
+        for endpoint in ["ftp://example.com", "https://", "http://has space"] {
+            let err = validate_endpoint_url(endpoint).expect_err(endpoint);
+            assert!(matches!(err, PakerError::InvalidEndpoint));
+        }
+    }
+
+    #[test]
+    fn map_s3_service_error_message_classifies_known_codes() {
+        assert!(matches!(
+            map_s3_service_error_message("NoSuchBucket: bucket missing"),
+            PakerError::BucketNotFound
+        ));
+        assert!(matches!(
+            map_s3_service_error_message("404 NotFound"),
+            PakerError::BucketNotFound
+        ));
+        assert!(matches!(
+            map_s3_service_error_message("AccessDenied: denied"),
+            PakerError::AccessDenied
+        ));
+        assert!(matches!(
+            map_s3_service_error_message("SignatureDoesNotMatch"),
+            PakerError::AccessDenied
+        ));
+        assert!(matches!(
+            map_s3_service_error_message("SlowDown"),
+            PakerError::Internal
+        ));
+    }
+
+    #[test]
+    fn clamp_presign_expiry_secs_enforces_bounds() {
+        assert_eq!(clamp_presign_expiry_secs(1), 60);
+        assert_eq!(clamp_presign_expiry_secs(3600), 3600);
+        assert_eq!(clamp_presign_expiry_secs(1_000_000), 604_800);
+    }
 }

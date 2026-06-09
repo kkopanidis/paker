@@ -1,9 +1,10 @@
 import { forwardRef } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { looksLikePath, type TypeFilter } from "@/lib/browser-utils";
 import { cn } from "@/lib/utils";
 
-export type TypeFilter = "all" | "folders" | "files" | "glacier";
+export type { TypeFilter };
 
 export interface BrowserFilterBarProps {
   filterText: string;
@@ -25,13 +26,6 @@ const TYPE_FILTERS: { value: TypeFilter; label: string }[] = [
   { value: "files", label: "Files" },
   { value: "glacier", label: "Glacier" },
 ];
-
-function looksLikePath(value: string): boolean {
-  const trimmed = value.trim();
-  if (!trimmed) return false;
-  if (trimmed.includes("/")) return true;
-  return /^s3:/i.test(trimmed);
-}
 
 export const BrowserFilterBar = forwardRef<HTMLInputElement, BrowserFilterBarProps>(
   function BrowserFilterBar(

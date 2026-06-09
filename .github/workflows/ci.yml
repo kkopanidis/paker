@@ -94,3 +94,48 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
       - run: npm run tauri build -- --debug --no-bundle
+
+  rust-integration:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name paker-minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          cache-on-failure: true
+          cache-all-crates: true
+
+      - name: Install AWS CLI
+        run: pip install awscli
+
+      - name: Prepare MinIO test bucket
+        env:
+          PAKER_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        run: bash scripts/setup-minio-test.sh
+
+      - name: Run S3 integration tests
+        env:
+          PAKER_TEST_S3_ENDPOINT: http://127.0.0.1:9000
+        run: cargo test --manifest-path src-tauri/Cargo.toml --features integration-tests --test s3_integration -- --ignored --test-threads=1

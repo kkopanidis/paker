@@ -9,6 +9,14 @@ edition = "2021"
 name = "paker_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+integration-tests = []
+
+[[test]]
+name = "s3_integration"
+path = "tests/s3_integration.rs"
+required-features = ["integration-tests"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -54,3 +62,9 @@ windows = { version = "0.62", features = [
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+aws-sdk-s3 = "1"
+aws-config = "1"
+aws-credential-types = "1"

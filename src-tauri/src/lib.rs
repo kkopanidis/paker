@@ -11,6 +11,14 @@ mod type_export;
 
 pub use error::PakerError;
 
+/// Public surface for `src-tauri/tests/` integration tests (`--features integration-tests`).
+#[cfg(any(test, feature = "integration-tests"))]
+pub mod test_exports {
+    pub use crate::s3::client::build_client;
+    pub use crate::s3::operations::*;
+    pub use crate::storage::ConnectionProfile;
+}
+
 use commands::local_fs::LocalFsScope;
 use index::BucketIndexManager;
 use storage::{ObjectCacheManager, VaultManager};
