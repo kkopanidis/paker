@@ -16,6 +16,7 @@ Fixes #<!-- issue number -->
 ## Test plan
 
 - [ ] Local dev (`npm run tauri dev`)
+- [ ] Frontend tests (`npm test` / `npm run test:all`)
 - [ ] Rust tests (`cargo test` / `npm run test:rust`)
 - [ ] Production build (`npm run build`)
 - [ ] Manual S3 provider testing (if applicable)

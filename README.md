@@ -72,6 +72,42 @@ npm install
 npm run tauri dev
 ```
 
+## Testing
+
+Every [pull request](.github/workflows/ci.yml) runs the full test suite:
+
+| CI job | What it runs |
+|--------|----------------|
+| **frontend** | `npm test` (Vitest) + `npm run build` |
+| **rust-tauri** | `cargo test`, Clippy, debug Tauri build |
+| **rust-integration** | S3 integration tests against a MinIO service container |
+
+### Local commands
+
+```bash
+npm test              # Frontend unit tests (Vitest)
+npm run test:rust     # Rust unit tests
+npm run test:all      # Both suites
+npm run test:coverage # Vitest coverage report (v8)
+```
+
+S3 integration tests are `#[ignore]` by default so `cargo test` works without MinIO. To run them locally, start MinIO, run `bash scripts/setup-minio-test.sh`, then see [CONTRIBUTING.md](CONTRIBUTING.md#useful-commands) for the full command.
+
+Release builds also run `npm run test:all` before platform artifacts are produced ([release workflow](.github/workflows/release.yml)).
+
+### Coverage
+
+Frontend coverage is reported by Vitest (`npm run test:coverage`). There are no enforced thresholds yet — the report is a baseline for tracking progress.
+
+| Area | Approx. line coverage | Notes |
+|------|----------------------|--------|
+| **Overall frontend** | ~31% | Dominated by untested layout/browser chrome |
+| **Hooks** | ~55% | `useBrowser`, transfers, vault, index, UI state |
+| **`browser-utils`** | 100% | Extracted filter/path logic |
+| **Rust unit** | No line report in CI | Strong on crypto, paths, caches; S3 ops covered by integration tests |
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the complete command reference and PR checklist.
+
 ## Build (portable artifacts)
 
 ```bash

@@ -45,3 +45,49 @@ impl TransferManager {
         self.paused.lock().unwrap().remove(transfer_id);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn register_creates_token_and_cancel_cancels_registered_transfer() {
+        let mgr = TransferManager::default();
+        let token = mgr.register("transfer-1");
+        assert!(!token.is_cancelled());
+        assert!(mgr.cancel("transfer-1"));
+        assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn pause_resume_is_paused_lifecycle() {
+        let mgr = TransferManager::default();
+        mgr.register("transfer-1");
+
+        assert!(!mgr.is_paused("transfer-1"));
+        assert!(mgr.pause("transfer-1"));
+        assert!(mgr.is_paused("transfer-1"));
+        assert!(!mgr.pause("transfer-1"));
+        assert!(mgr.resume("transfer-1"));
+        assert!(!mgr.is_paused("transfer-1"));
+        assert!(!mgr.resume("transfer-1"));
+    }
+
+    #[test]
+    fn remove_cleans_up_tokens_and_paused_set() {
+        let mgr = TransferManager::default();
+        mgr.register("transfer-1");
+        mgr.pause("transfer-1");
+
+        mgr.remove("transfer-1");
+
+        assert!(!mgr.cancel("transfer-1"));
+        assert!(!mgr.is_paused("transfer-1"));
+    }
+
+    #[test]
+    fn cancel_on_unknown_transfer_returns_false() {
+        let mgr = TransferManager::default();
+        assert!(!mgr.cancel("missing"));
+    }
+}

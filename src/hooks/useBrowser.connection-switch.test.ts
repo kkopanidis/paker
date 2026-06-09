@@ -25,7 +25,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
 const emptyListing: ListObjectsResponse = {
   objects: [],
   commonPrefixes: [],
-  continuationToken: null,
+  continuationToken: undefined,
   isTruncated: false,
   fromCache: false,
   fetchedAt: "1700000000",

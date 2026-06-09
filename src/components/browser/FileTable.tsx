@@ -46,7 +46,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatBytes, formatDate } from "@/lib/utils";
 import type { S3Object } from "@/types/s3";
-import type { TypeFilter } from "@/components/browser/BrowserFilterBar";
+import { filterObjects, type TypeFilter } from "@/lib/browser-utils";
 
 interface FileTableProps {
   objects: S3Object[];
@@ -81,35 +81,6 @@ function SortIcon({ sorted }: { sorted: false | "asc" | "desc" }) {
   if (sorted === "asc") return <ArrowUp className="ml-1 inline h-3.5 w-3.5" />;
   if (sorted === "desc") return <ArrowDown className="ml-1 inline h-3.5 w-3.5" />;
   return <ArrowUpDown className="ml-1 inline h-3.5 w-3.5 opacity-40" />;
-}
-
-function matchesTypeFilter(object: S3Object, typeFilter: TypeFilter): boolean {
-  switch (typeFilter) {
-    case "folders":
-      return object.isFolder;
-    case "files":
-      return !object.isFolder;
-    case "glacier":
-      return object.storageClass?.toUpperCase().includes("GLACIER") ?? false;
-    default:
-      return true;
-  }
-}
-
-function filterObjects(
-  objects: S3Object[],
-  filterText?: string,
-  typeFilter?: TypeFilter
-): S3Object[] {
-  let result = objects;
-  const query = filterText?.trim().toLowerCase();
-  if (query) {
-    result = result.filter((object) => object.name.toLowerCase().includes(query));
-  }
-  if (typeFilter && typeFilter !== "all") {
-    result = result.filter((object) => matchesTypeFilter(object, typeFilter));
-  }
-  return result;
 }
 
 function resolveContextTargets(

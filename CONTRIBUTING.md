@@ -20,7 +20,11 @@ npm run tauri dev
 | Command | Purpose |
 |---------|---------|
 | `npm run build` | Typecheck and build the React frontend |
-| `npm run test:rust` | Run Rust unit/integration tests |
+| `npm test` | Run frontend unit tests (Vitest) |
+| `npm run test:all` | Run frontend and Rust tests |
+| `npm run test:rust` | Run Rust unit tests (MinIO integration tests are `#[ignore]` by default) |
+| `bash scripts/setup-minio-test.sh` | Create the `paker-test` bucket on a local MinIO instance |
+| `cargo test --manifest-path src-tauri/Cargo.toml --features integration-tests --test s3_integration -- --ignored` | Run S3 integration tests against MinIO (`PAKER_TEST_S3_ENDPOINT`, default `http://127.0.0.1:9000`) |
 | `npm run lint:rust` | Run Clippy with warnings denied |
 | `npm run typecheck` | TypeScript check without emit |
 
@@ -73,7 +77,7 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
-Pushing a `v*` tag triggers the [release workflow](.github/workflows/release.yml), which syncs the tag version into `src-tauri/tauri.conf.json` (and related files), builds platform artifacts, and publishes a GitHub Release when all jobs finish.
+Pushing a `v*` tag triggers the [release workflow](.github/workflows/release.yml), which runs frontend and Rust unit tests before building; release builds are blocked if tests fail. The workflow then syncs the tag version into `src-tauri/tauri.conf.json` (and related files), builds platform artifacts, and publishes a GitHub Release when all jobs finish.
 
 To rebuild an existing tag without re-pushing, use **Actions → Release → Run workflow** and enter the tag (e.g. `v0.6.0`).
 
@@ -90,6 +94,16 @@ This keeps local and CI dev builds on the upcoming version; it does not affect b
 ### Local version sync
 
 `npm run version:sync` propagates the version from `src-tauri/tauri.conf.json` to `package.json`, `package-lock.json`, and `Cargo.toml`. Use this after editing the dev version on `main`, not when cutting a release (CI sets the version from the tag).
+
+### S3 integration tests (optional)
+
+Rust S3 integration tests live in `src-tauri/tests/` and talk to a MinIO (or S3-compatible) endpoint. They are marked `#[ignore]` so `cargo test` passes without MinIO. CI runs them in the `rust-integration` workflow job, which serves as the end-to-end smoke test for storage (no Tauri WebDriver E2E in CI or release).
+
+Local run:
+
+1. Start MinIO (for example `docker run -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data`).
+2. `bash scripts/setup-minio-test.sh`
+3. `PAKER_TEST_S3_ENDPOINT=http://127.0.0.1:9000 cargo test --manifest-path src-tauri/Cargo.toml --features integration-tests --test s3_integration -- --ignored`
 
 ## Code style
 

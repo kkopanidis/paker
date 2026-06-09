@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { formatIpcError, invokeSafe, parseStructuredError } from "./tauri";
+import { formatIpcError, invokeSafe, normalizeObjects, parseStructuredError } from "./tauri";
+import type { ListObjectsResult } from "@/types/s3";
 
 afterEach(() => {
   clearMocks();
@@ -85,6 +86,76 @@ describe("parseStructuredError edge cases", () => {
       message: "Path is not allowed",
       userAction: undefined,
     });
+  });
+});
+
+describe("normalizeObjects", () => {
+  it("creates folder entries from common prefixes", () => {
+    const result: ListObjectsResult = {
+      objects: [
+        {
+          key: "photos/",
+          size: 0,
+          lastModified: "2024-03-10T12:00:00Z",
+        },
+        {
+          key: "photos/cat.jpg",
+          size: 1024,
+          lastModified: "2024-01-01T00:00:00Z",
+        },
+      ],
+      commonPrefixes: ["photos/"],
+      isTruncated: false,
+    };
+
+    const objects = normalizeObjects(result, "");
+    const folder = objects.find((o) => o.isFolder);
+    expect(folder?.name).toBe("photos");
+    expect(folder?.key).toBe("photos/");
+  });
+
+  it("returns an empty array for an empty listing", () => {
+    const result: ListObjectsResult = {
+      objects: [],
+      commonPrefixes: [],
+      isTruncated: false,
+    };
+
+    expect(normalizeObjects(result, "")).toEqual([]);
+  });
+
+  it("normalizes nested common prefixes under the current prefix", () => {
+    const result: ListObjectsResult = {
+      objects: [
+        {
+          key: "projects/alpha/readme.txt",
+          size: 128,
+          lastModified: "2024-04-01T00:00:00Z",
+        },
+      ],
+      commonPrefixes: ["projects/alpha/", "projects/beta/"],
+      isTruncated: false,
+    };
+
+    const objects = normalizeObjects(result, "projects/");
+    expect(objects.map((o) => ({ name: o.name, isFolder: o.isFolder }))).toEqual([
+      { name: "alpha", isFolder: true },
+      { name: "beta", isFolder: true },
+      { name: "alpha/readme.txt", isFolder: false },
+    ]);
+  });
+
+  it("preserves isTruncated metadata on the source listing", () => {
+    const result: ListObjectsResult = {
+      objects: [{ key: "page-1.txt", size: 1, lastModified: "2024-01-01T00:00:00Z" }],
+      commonPrefixes: [],
+      continuationToken: "next-page",
+      isTruncated: true,
+    };
+
+    expect(result.isTruncated).toBe(true);
+    expect(result.continuationToken).toBe("next-page");
+    expect(normalizeObjects(result, "").map((o) => o.key)).toEqual(["page-1.txt"]);
   });
 });
 

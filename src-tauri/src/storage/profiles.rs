@@ -99,3 +99,98 @@ pub fn delete_connection(app: &AppHandle, id: &str) -> Result<bool> {
     write_all(app, &profiles)?;
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_profile() -> ConnectionProfile {
+        ConnectionProfile {
+            id: "conn-1".to_string(),
+            name: "MinIO".to_string(),
+            endpoint: Some("https://minio.example.com".to_string()),
+            region: "us-east-1".to_string(),
+            access_key_id: "AKIAEXAMPLE".to_string(),
+            force_path_style: true,
+            default_bucket: Some("media".to_string()),
+        }
+    }
+
+    #[test]
+    fn connection_profile_round_trip_serialization() {
+        let profile = sample_profile();
+        let json = serde_json::to_string(&profile).expect("serialize");
+        assert!(json.contains("\"accessKeyId\""));
+        assert!(json.contains("\"forcePathStyle\""));
+
+        let parsed: ConnectionProfile = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(parsed.id, profile.id);
+        assert_eq!(parsed.name, profile.name);
+        assert_eq!(parsed.endpoint, profile.endpoint);
+        assert_eq!(parsed.region, profile.region);
+        assert_eq!(parsed.access_key_id, profile.access_key_id);
+        assert_eq!(parsed.force_path_style, profile.force_path_style);
+        assert_eq!(parsed.default_bucket, profile.default_bucket);
+    }
+
+    #[test]
+    fn connection_profile_defaults_optional_fields_to_none() {
+        let json = r#"{
+            "id": "conn-aws",
+            "name": "AWS",
+            "region": "eu-west-1",
+            "accessKeyId": "KEY",
+            "forcePathStyle": false
+        }"#;
+        let profile: ConnectionProfile = serde_json::from_str(json).expect("deserialize");
+        assert!(profile.endpoint.is_none());
+        assert!(profile.default_bucket.is_none());
+        assert!(!profile.force_path_style);
+    }
+
+    #[test]
+    fn connection_profile_endpoint_handling() {
+        let with_endpoint = r#"{
+            "id": "1",
+            "name": "Local",
+            "endpoint": "http://localhost:9000",
+            "region": "us-east-1",
+            "accessKeyId": "minio",
+            "forcePathStyle": true
+        }"#;
+        let profile: ConnectionProfile = serde_json::from_str(with_endpoint).expect("deserialize");
+        assert_eq!(profile.endpoint.as_deref(), Some("http://localhost:9000"));
+
+        let without_endpoint = r#"{
+            "id": "2",
+            "name": "AWS",
+            "region": "us-east-1",
+            "accessKeyId": "AKIA",
+            "forcePathStyle": false
+        }"#;
+        let profile: ConnectionProfile =
+            serde_json::from_str(without_endpoint).expect("deserialize");
+        assert!(profile.endpoint.is_none());
+    }
+
+    #[test]
+    fn save_connection_input_deserializes_camel_case_fields() {
+        let json = r#"{
+            "name": "Staging",
+            "endpoint": "https://s3.example.com",
+            "region": "auto",
+            "accessKeyId": "key",
+            "secretAccessKey": "secret",
+            "sessionToken": "token",
+            "forcePathStyle": true,
+            "defaultBucket": "uploads"
+        }"#;
+        let input: SaveConnectionInput = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(input.name, "Staging");
+        assert_eq!(input.endpoint.as_deref(), Some("https://s3.example.com"));
+        assert_eq!(input.secret_access_key.as_deref(), Some("secret"));
+        assert_eq!(input.session_token.as_deref(), Some("token"));
+        assert!(input.force_path_style);
+        assert_eq!(input.default_bucket.as_deref(), Some("uploads"));
+    }
+}

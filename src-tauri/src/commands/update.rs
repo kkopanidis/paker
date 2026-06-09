@@ -89,6 +89,22 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
     compare_versions(latest, current) == Ordering::Greater
 }
 
+fn parse_github_release(json: &str) -> Result<GitHubRelease> {
+    serde_json::from_str(json).context("failed to parse GitHub release response")
+}
+
+fn update_info_from_release(release: &GitHubRelease) -> UpdateInfo {
+    let current = current_version().to_string();
+    let latest = strip_version_prefix(&release.tag_name).to_string();
+    UpdateInfo {
+        current_version: current.clone(),
+        latest_version: latest.clone(),
+        update_available: is_newer_version(&latest, &current),
+        release_url: release.html_url.clone(),
+        release_name: release.name.clone(),
+    }
+}
+
 fn read_cache(app: &AppHandle) -> Result<Option<UpdateInfo>> {
     let path = paths::update_check_cache_path(app)?;
     if !path.exists() {
@@ -147,9 +163,10 @@ fn fetch_latest_release() -> Result<GitHubRelease> {
         anyhow::bail!("GitHub releases API returned {}", response.status());
     }
 
-    response
-        .json::<GitHubRelease>()
-        .context("failed to parse GitHub release response")
+    let body = response
+        .text()
+        .context("failed to read GitHub release response body")?;
+    parse_github_release(&body)
 }
 
 fn check_for_update_inner(app: &AppHandle) -> UpdateInfo {
@@ -161,21 +178,12 @@ fn check_for_update_inner(app: &AppHandle) -> UpdateInfo {
         return cached;
     }
 
-    let current = current_version().to_string();
-
     let release = match fetch_latest_release() {
         Ok(release) => release,
         Err(_) => return no_update_info(),
     };
 
-    let latest = strip_version_prefix(&release.tag_name).to_string();
-    let info = UpdateInfo {
-        current_version: current.clone(),
-        latest_version: latest.clone(),
-        update_available: is_newer_version(&latest, &current),
-        release_url: release.html_url,
-        release_name: release.name,
-    };
+    let info = update_info_from_release(&release);
 
     let _ = write_cache(app, &info);
     info
@@ -186,4 +194,63 @@ pub async fn check_for_update(app: AppHandle) -> Result<UpdateInfo, PakerError> 
     tauri::async_runtime::spawn_blocking(move || check_for_update_inner(&app))
         .await
         .map_err(|_| PakerError::Internal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_RELEASE_JSON: &str = r#"{
+        "tag_name": "v1.2.3",
+        "name": "Paker 1.2.3",
+        "html_url": "https://github.com/kkopanidis/paker/releases/tag/v1.2.3"
+    }"#;
+
+    #[test]
+    fn parse_github_release_reads_expected_fields() {
+        let release = parse_github_release(SAMPLE_RELEASE_JSON).expect("parse");
+        assert_eq!(release.tag_name, "v1.2.3");
+        assert_eq!(release.name, "Paker 1.2.3");
+        assert_eq!(
+            release.html_url,
+            "https://github.com/kkopanidis/paker/releases/tag/v1.2.3"
+        );
+    }
+
+    #[test]
+    fn strip_version_prefix_removes_v_prefix() {
+        assert_eq!(strip_version_prefix("v1.0.0"), "1.0.0");
+        assert_eq!(strip_version_prefix("V2.0.0"), "2.0.0");
+        assert_eq!(strip_version_prefix("1.0.0"), "1.0.0");
+    }
+
+    #[test]
+    fn compare_versions_orders_semver_like_strings() {
+        assert_eq!(compare_versions("1.2.0", "1.1.9"), Ordering::Greater);
+        assert_eq!(compare_versions("1.0.0", "1.0.0"), Ordering::Equal);
+        assert_eq!(compare_versions("0.9.9", "1.0.0"), Ordering::Less);
+        assert_eq!(compare_versions("1.0.0-beta", "1.0.0"), Ordering::Equal);
+        assert_eq!(compare_versions("1.0.0", "1.0.0.1"), Ordering::Less);
+    }
+
+    #[test]
+    fn is_newer_version_detects_update() {
+        assert!(is_newer_version("9.9.9", current_version()));
+        assert!(!is_newer_version(current_version(), current_version()));
+        assert!(!is_newer_version("0.0.1", current_version()));
+    }
+
+    #[test]
+    fn update_info_from_release_marks_newer_tag_as_available() {
+        let release = parse_github_release(SAMPLE_RELEASE_JSON).expect("parse");
+        let info = update_info_from_release(&release);
+        assert_eq!(info.current_version, current_version());
+        assert_eq!(info.latest_version, "1.2.3");
+        assert_eq!(info.release_name, "Paker 1.2.3");
+        assert!(info.release_url.contains("github.com"));
+        assert_eq!(
+            info.update_available,
+            is_newer_version("1.2.3", current_version())
+        );
+    }
 }
