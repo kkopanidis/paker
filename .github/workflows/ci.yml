@@ -97,21 +97,16 @@ jobs:
 
   rust-integration:
     runs-on: ubuntu-22.04
-    services:
-      minio:
-        image: minio/minio:latest
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-        options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v6
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name paker-minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            minio/minio server /data
 
       - uses: dtolnay/rust-toolchain@stable
 
