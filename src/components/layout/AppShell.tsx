@@ -436,6 +436,7 @@ export function AppShell() {
     disabled: browserDisabled,
     onRefresh: () => void browser.refreshObjects(),
     onDelete: openDeleteConfirm,
+    onNavigateUp: browser.navigateUp,
     onUpload: () => void startUpload(),
     onOpenSelected: () => {
       if (focusedObject?.isFolder) {
@@ -794,6 +795,8 @@ export function AppShell() {
                 currentPrefix={browser.prefix}
                 bookmarks={bookmarks}
                 onNavigate={browser.navigateToPrefix}
+                onNavigateUp={browser.navigateUp}
+                canNavigateUp={!!browser.prefix}
                 onBookmarkNavigate={handleBookmarkNavigate}
                 onAddBookmark={handleAddBookmark}
                 onRemoveBookmark={handleRemoveBookmark}

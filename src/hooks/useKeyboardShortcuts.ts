@@ -3,6 +3,7 @@ import { useEffect } from "react";
 interface KeyboardShortcuts {
   onRefresh?: () => void;
   onDelete?: () => void;
+  onNavigateUp?: () => void;
   onUpload?: () => void;
   onOpenSelected?: () => void;
   onSelectAll?: () => void;
@@ -16,6 +17,7 @@ interface KeyboardShortcuts {
 export function useKeyboardShortcuts({
   onRefresh,
   onDelete,
+  onNavigateUp,
   onUpload,
   onOpenSelected,
   onSelectAll,
@@ -40,6 +42,9 @@ export function useKeyboardShortcuts({
       if (event.key === "F5") {
         event.preventDefault();
         onRefresh?.();
+      } else if (event.key === "ArrowUp" && event.altKey) {
+        event.preventDefault();
+        onNavigateUp?.();
       } else if (event.key === "Delete" || event.key === "Backspace") {
         if (event.metaKey || event.ctrlKey) return;
         event.preventDefault();
@@ -77,6 +82,7 @@ export function useKeyboardShortcuts({
     disabled,
     onRefresh,
     onDelete,
+    onNavigateUp,
     onUpload,
     onOpenSelected,
     onSelectAll,

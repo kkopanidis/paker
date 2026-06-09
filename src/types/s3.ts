@@ -37,6 +37,7 @@ export interface ListObjectsResult {
   commonPrefixes?: string[];
   continuationToken?: string;
   isTruncated: boolean;
+  prefixLastModified?: Record<string, string>;
 }
 
 export interface CachedListResult {

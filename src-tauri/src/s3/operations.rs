@@ -63,6 +63,8 @@ pub struct ListObjectsResult {
     pub common_prefixes: Vec<String>,
     pub continuation_token: Option<String>,
     pub is_truncated: bool,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub prefix_last_modified: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -777,6 +779,7 @@ pub async fn list_objects_v2(
         common_prefixes,
         continuation_token: response.next_continuation_token().map(|s| s.to_string()),
         is_truncated: response.is_truncated().unwrap_or(false),
+        prefix_last_modified: HashMap::new(),
     })
 }
 
