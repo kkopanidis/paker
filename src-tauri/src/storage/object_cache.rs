@@ -478,6 +478,7 @@ impl ObjectCacheManager {
 mod tests {
     use super::*;
     use crate::s3::operations::ObjectInfo;
+    use std::collections::HashMap;
     use std::fs;
     use uuid::Uuid;
 
@@ -494,6 +495,7 @@ mod tests {
             common_prefixes: vec!["photos/dogs/".to_string()],
             continuation_token: None,
             is_truncated: false,
+            prefix_last_modified: HashMap::new(),
         }
     }
 
@@ -541,6 +543,7 @@ mod tests {
             common_prefixes: vec![],
             continuation_token: Some("token-2".to_string()),
             is_truncated: false,
+            prefix_last_modified: HashMap::new(),
         };
 
         cache
@@ -620,6 +623,7 @@ mod tests {
             common_prefixes: vec!["photos/".to_string()],
             continuation_token: None,
             is_truncated: false,
+            prefix_last_modified: HashMap::new(),
         };
         let child_listing = sample_listing();
         let child_head = ObjectHeadResult {

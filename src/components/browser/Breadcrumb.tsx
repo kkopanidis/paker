@@ -1,4 +1,4 @@
-import { ChevronRight, Home, Star, Trash2 } from "lucide-react";
+import { ArrowUp, ChevronRight, Home, Star, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,6 +21,8 @@ interface BreadcrumbProps {
   bucket: string | null;
   segments: { label: string; path: string }[];
   onNavigate: (prefix: string) => void;
+  onNavigateUp?: () => void;
+  canNavigateUp?: boolean;
   className?: string;
   bookmarks?: Bookmark[];
   onBookmarkNavigate?: (bucket: string, prefix: string) => void;
@@ -33,6 +35,8 @@ export function Breadcrumb({
   bucket,
   segments,
   onNavigate,
+  onNavigateUp,
+  canNavigateUp = false,
   className,
   bookmarks = [],
   onBookmarkNavigate,
@@ -54,6 +58,18 @@ export function Breadcrumb({
 
   return (
     <nav className={cn("flex flex-wrap items-center gap-1 px-3 py-2 text-sm", className)}>
+      {onNavigateUp && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0"
+          onClick={onNavigateUp}
+          disabled={!canNavigateUp}
+          aria-label="Go up"
+        >
+          <ArrowUp className="h-3.5 w-3.5" />
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="sm"

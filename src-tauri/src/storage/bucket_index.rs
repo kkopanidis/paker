@@ -198,6 +198,25 @@ impl ObjectCacheManager {
             .context("failed to read bucket index search results")
     }
 
+    pub fn get_prefix_max_last_modified(
+        &self,
+        connection_id: &str,
+        bucket: &str,
+        prefix: &str,
+    ) -> Option<String> {
+        let conn = self.db();
+        let pattern = format!("{prefix}%");
+        conn.query_row(
+            "SELECT MAX(last_modified) FROM bucket_index_objects
+             WHERE connection_id = ?1 AND bucket = ?2 AND key LIKE ?3
+               AND last_modified IS NOT NULL AND last_modified != ''",
+            params![connection_id, bucket, pattern],
+            |row| row.get(0),
+        )
+        .ok()
+        .flatten()
+    }
+
     pub fn export_bucket_index_csv(&self, connection_id: &str, bucket: &str) -> Result<String> {
         let conn = self.db();
         let mut stmt = conn.prepare(
@@ -297,6 +316,52 @@ mod tests {
             .expect("export");
         assert!(csv.contains("photos/cat.jpg"));
         assert!(csv.contains("docs/readme.txt"));
+    }
+
+    #[test]
+    fn prefix_max_last_modified_returns_newest_under_prefix() {
+        let cache = open_test_cache();
+        let objects = vec![
+            IndexedObject {
+                key: "photos/dogs/a.jpg".to_string(),
+                size: 100,
+                last_modified: Some("2024-01-01".to_string()),
+                etag: None,
+                storage_class: None,
+            },
+            IndexedObject {
+                key: "photos/dogs/b.jpg".to_string(),
+                size: 100,
+                last_modified: Some("2024-06-15".to_string()),
+                etag: None,
+                storage_class: None,
+            },
+            IndexedObject {
+                key: "photos/cats/x.jpg".to_string(),
+                size: 50,
+                last_modified: Some("2024-12-01".to_string()),
+                etag: None,
+                storage_class: None,
+            },
+        ];
+
+        cache
+            .upsert_indexed_objects_batch("conn-1", "bucket", &objects)
+            .expect("batch insert");
+
+        let dogs_max = cache
+            .get_prefix_max_last_modified("conn-1", "bucket", "photos/dogs/")
+            .expect("dogs prefix");
+        assert_eq!(dogs_max, "2024-06-15");
+
+        let photos_max = cache
+            .get_prefix_max_last_modified("conn-1", "bucket", "photos/")
+            .expect("photos prefix");
+        assert_eq!(photos_max, "2024-12-01");
+
+        assert!(cache
+            .get_prefix_max_last_modified("conn-1", "bucket", "empty/")
+            .is_none());
     }
 
     #[test]

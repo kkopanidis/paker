@@ -185,6 +185,9 @@ export function normalizeObjects(result: ListObjectsResult, prefix: string): S3O
     name: key.slice(prefix.length).replace(/\/$/, ""),
     isFolder: true,
     size: 0,
+    lastModified:
+      result.objects.find((obj) => obj.key === key)?.lastModified ??
+      result.prefixLastModified?.[key],
   }));
 
   const files: S3Object[] = result.objects

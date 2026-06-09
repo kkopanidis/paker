@@ -160,3 +160,44 @@ jobs:
       - run: gh release edit "${RELEASE_TAG}" --draft=false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  scoop-manifest:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download Windows portable zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          mkdir -p dist
+          gh release download "${RELEASE_TAG}" \
+            --pattern "Paker-${VERSION}-windows-portable.zip" \
+            --dir dist
+
+      - name: Render Scoop manifest
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          HASH="$(sha256sum "dist/Paker-${VERSION}-windows-portable.zip" | awk '{print $1}')"
+          node scripts/render-scoop-manifest.mjs "${VERSION}" "${HASH}"
+
+      - name: Commit Scoop manifest to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scoop/paker.json
+          if git diff --staged --quiet; then
+            echo "Scoop manifest unchanged"
+            exit 0
+          fi
+          git commit -m "chore(scoop): update manifest for ${RELEASE_TAG}"
+          git push origin main

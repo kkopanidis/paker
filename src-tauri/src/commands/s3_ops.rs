@@ -17,6 +17,7 @@ use crate::s3::{
 };
 use crate::storage::{self, ObjectCacheManager};
 use crate::transfer::TransferManager;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
@@ -56,6 +57,38 @@ fn invalidate_for_keys(cache: &ObjectCacheManager, conn: &str, bucket: &str, key
     for prefix in prefixes_for_keys(keys) {
         invalidate_after_mutation(cache, conn, bucket, &prefix);
     }
+}
+
+fn enrich_prefix_last_modified(
+    cache: &ObjectCacheManager,
+    connection_id: &str,
+    bucket: &str,
+    listing: &mut crate::s3::ListObjectsResult,
+) {
+    let index_complete = cache
+        .get_bucket_index_meta(connection_id, bucket)
+        .is_some_and(|meta| meta.status == "completed");
+    if !index_complete {
+        listing.prefix_last_modified = HashMap::new();
+        return;
+    }
+
+    let mut prefix_dates = HashMap::new();
+    for prefix in &listing.common_prefixes {
+        if listing
+            .objects
+            .iter()
+            .any(|obj| obj.key == *prefix && obj.last_modified.is_some())
+        {
+            continue;
+        }
+        if let Some(max_modified) =
+            cache.get_prefix_max_last_modified(connection_id, bucket, prefix)
+        {
+            prefix_dates.insert(prefix.clone(), max_modified);
+        }
+    }
+    listing.prefix_last_modified = prefix_dates;
 }
 
 fn seed_head_cache_from_listing(
@@ -196,7 +229,10 @@ pub async fn read_list_cache(
     let prefix_str = prefix.as_deref().unwrap_or("");
     Ok(cache
         .get_listing(&connection_id, &bucket, prefix_str, "")
-        .map(|(result, fetched_at)| CachedListResponse { result, fetched_at }))
+        .map(|(mut result, fetched_at)| {
+            enrich_prefix_last_modified(&cache, &connection_id, &bucket, &mut result);
+            CachedListResponse { result, fetched_at }
+        }))
 }
 
 #[tauri::command]
@@ -219,13 +255,15 @@ pub async fn list_objects(
     }
 
     let client = build_client_for_id(&app, &connection_id).await?;
-    let result = list_objects_v2(
+    let mut result = list_objects_v2(
         &client,
         &bucket,
         prefix.as_deref(),
         continuation_token.as_deref(),
     )
     .await?;
+
+    enrich_prefix_last_modified(&cache, &connection_id, &bucket, &mut result);
 
     let _ = cache.put_listing(&connection_id, &bucket, prefix_str, token_str, &result);
     seed_head_cache_from_listing(&cache, &connection_id, &bucket, &result);

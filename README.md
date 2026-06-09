@@ -32,6 +32,13 @@ Pre-built binaries are available on the [Releases](https://github.com/kkopanidis
 | Windows | NSIS installer and portable zip |
 | Linux | AppImage |
 
+### Windows (Scoop)
+
+```powershell
+scoop bucket add paker https://github.com/kkopanidis/paker#main:scoop
+scoop install paker
+```
+
 > **Note:** Releases are unsigned initially. macOS and Windows may show security warnings until code signing is configured.
 
 ## Layout (v0.5+)

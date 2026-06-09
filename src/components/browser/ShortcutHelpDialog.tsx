@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/table";
 
 const SHORTCUTS: { keys: string; action: string }[] = [
+  { keys: "Alt+↑", action: "Go up" },
   { keys: "F5", action: "Refresh" },
   { keys: "Del", action: "Delete" },
   { keys: "⌘U", action: "Upload" },

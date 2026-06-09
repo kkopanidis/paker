@@ -82,16 +82,16 @@ export function BrowserToolbar({
     <TooltipProvider>
       <div className="flex items-center gap-1 border-b px-2 py-1">
         <ToolbarButton
-          label="Upload"
-          icon={<Upload className="h-4 w-4" />}
-          onClick={onUpload}
-          disabled={disabled || busy}
-        />
-        <ToolbarButton
           label="Download"
           icon={<Download className="h-4 w-4" />}
           onClick={onDownload}
           disabled={disabled || busy || !hasSelection}
+        />
+        <ToolbarButton
+          label="Upload"
+          icon={<Upload className="h-4 w-4" />}
+          onClick={onUpload}
+          disabled={disabled || busy}
         />
         <ToolbarButton
           label="Delete"

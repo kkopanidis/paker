@@ -90,7 +90,7 @@ describe("parseStructuredError edge cases", () => {
 });
 
 describe("normalizeObjects", () => {
-  it("creates folder entries from common prefixes", () => {
+  it("creates folder entries from common prefixes with marker lastModified", () => {
     const result: ListObjectsResult = {
       objects: [
         {
@@ -112,6 +112,20 @@ describe("normalizeObjects", () => {
     const folder = objects.find((o) => o.isFolder);
     expect(folder?.name).toBe("photos");
     expect(folder?.key).toBe("photos/");
+    expect(folder?.lastModified).toBe("2024-03-10T12:00:00Z");
+  });
+
+  it("uses prefixLastModified from bucket index when no folder marker", () => {
+    const result: ListObjectsResult = {
+      objects: [],
+      commonPrefixes: ["docs/"],
+      prefixLastModified: { "docs/": "2024-08-20T10:00:00Z" },
+      isTruncated: false,
+    };
+
+    const objects = normalizeObjects(result, "");
+    const folder = objects.find((o) => o.isFolder);
+    expect(folder?.lastModified).toBe("2024-08-20T10:00:00Z");
   });
 
   it("returns an empty array for an empty listing", () => {

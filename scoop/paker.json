@@ -1,0 +1,15 @@
+{
+  "version": "0.7.1",
+  "description": "Desktop browser for S3-compatible storage",
+  "homepage": "https://github.com/kkopanidis/paker",
+  "license": "MIT",
+  "url": "https://github.com/kkopanidis/paker/releases/download/v0.7.1/Paker-0.7.1-windows-portable.zip",
+  "hash": "sha256:0ede2b560de181ee952451ae2b35b3054ee03f0585115746203737e970908c58",
+  "bin": "paker.exe",
+  "checkver": {
+    "github": "kkopanidis/paker"
+  },
+  "autoupdate": {
+    "url": "https://github.com/kkopanidis/paker/releases/download/v$version/Paker-$version-windows-portable.zip"
+  }
+}
