@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-10
+
+### Added
+
+- Last-modified dates for remote S3 folders (from listing markers and bucket index)
+- Explicit go-up control in the breadcrumb for parent folder navigation
+- Scoop manifest for Windows installation, with release CI automation to update it
+- Comprehensive frontend and Rust test suite with CI integration and coverage reporting
+- Rust S3 integration tests against MinIO in CI
+
+### Changed
+
+- Toolbar button order — Upload moved for clearer workflow
+- Release workflow runs the full test suite before building platform artifacts
+
 ## [0.7.1] - 2026-06-08
 
 ### Changed
@@ -75,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transfer queue for uploads and downloads
 - Portable mode via `portable.txt` or `PAKER_PORTABLE=1`
 
-[Unreleased]: https://github.com/kkopanidis/paker/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/kkopanidis/paker/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/kkopanidis/paker/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/kkopanidis/paker/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/kkopanidis/paker/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kkopanidis/paker/compare/v0.5.0...v0.6.0
