@@ -85,7 +85,7 @@ impl ObjectCacheManager {
         Self::open(db_path)
     }
 
-    pub(crate) fn open(db_path: PathBuf) -> Result<Self> {
+    pub fn open(db_path: PathBuf) -> Result<Self> {
         paths::ensure_parent(&db_path)?;
         let conn = Connection::open(&db_path).with_context(|| {
             format!("failed to open object cache database {}", db_path.display())
@@ -155,6 +155,29 @@ impl ObjectCacheManager {
                 completed_at TEXT,
                 error TEXT,
                 PRIMARY KEY (connection_id, bucket)
+            );
+
+            CREATE TABLE IF NOT EXISTS assistant_query_history (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id TEXT    NOT NULL,
+                bucket        TEXT    NOT NULL,
+                raw_text      TEXT    NOT NULL,
+                summary       TEXT    NOT NULL,
+                confidence    TEXT    NOT NULL CHECK(confidence IN ('high','medium','low')),
+                result_count  INTEGER NOT NULL DEFAULT 0,
+                created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_aqh_conn_bucket
+                ON assistant_query_history(connection_id, bucket, id DESC);
+
+            CREATE TABLE IF NOT EXISTS assistant_pack_exports (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                connection_id TEXT NOT NULL,
+                bucket        TEXT NOT NULL,
+                export_path   TEXT,
+                object_count  INTEGER NOT NULL,
+                created_at    TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
             );
             ",
         )

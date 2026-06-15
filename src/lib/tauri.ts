@@ -92,6 +92,21 @@ import type {
   PrefixSizeResult,
   S3Object,
 } from "@/types/s3";
+import type {
+  ActionProposal,
+  AssistantModelStatus,
+  BucketReport,
+  BuildProposalInput,
+  CliCommandSuggestion,
+  CliGenerateInput,
+  ErrorExplanation,
+  ExecutionResult,
+  ExportFormat,
+  IndexQuery,
+  ParsedAssistantQuery,
+  ProposalEntry,
+  QueryHistoryItem,
+} from "@/types/assistant";
 import type { LocalEntry, TransferSettings } from "@/types/local";
 import type {
   ConnectionNav,
@@ -553,4 +568,136 @@ export function dismissVaultPrompt(): Promise<void> {
 
 export function getVaultPromptDismissed(): Promise<boolean> {
   return invokeSafe<boolean>("get_vault_prompt_dismissed");
+}
+
+export function assistantParseQuery(text: string): Promise<ParsedAssistantQuery> {
+  return invokeSafe<ParsedAssistantQuery>("assistant_parse_query", { text });
+}
+
+export function assistantGetModelStatus(): Promise<AssistantModelStatus> {
+  return invokeSafe<AssistantModelStatus>("assistant_get_model_status");
+}
+
+export function assistantOpenModelsFolder(): Promise<void> {
+  return invokeSafe<void>("assistant_open_models_folder");
+}
+
+export function assistantRunIndexQuery(
+  connectionId: string,
+  bucket: string,
+  query: IndexQuery
+): Promise<IndexedObject[]> {
+  return invokeSafe<IndexedObject[]>("assistant_run_index_query", {
+    connectionId,
+    bucket,
+    query,
+  });
+}
+
+export function assistantGetBucketReport(
+  connectionId: string,
+  bucket: string,
+  topN?: number
+): Promise<BucketReport> {
+  return invokeSafe<BucketReport>("assistant_get_bucket_report", {
+    connectionId,
+    bucket,
+    topN: topN ?? null,
+  });
+}
+
+export function assistantExplainError(code: string): Promise<ErrorExplanation> {
+  return invokeSafe<ErrorExplanation>("assistant_explain_error", { code });
+}
+
+export function assistantGenerateCli(input: CliGenerateInput): Promise<CliCommandSuggestion[]> {
+  return invokeSafe<CliCommandSuggestion[]>("assistant_generate_cli", { input });
+}
+
+export function assistantParseQueryLlm(text: string): Promise<ParsedAssistantQuery> {
+  return invokeSafe<ParsedAssistantQuery>("assistant_parse_query_llm", { text });
+}
+
+export function assistantQueryHistoryList(
+  connectionId: string,
+  bucket: string,
+  limit?: number
+): Promise<QueryHistoryItem[]> {
+  return invokeSafe<QueryHistoryItem[]>("assistant_query_history_list", {
+    connectionId,
+    bucket,
+    limit: limit ?? null,
+  });
+}
+
+export function assistantQueryHistoryClear(
+  connectionId: string,
+  bucket: string
+): Promise<void> {
+  return invokeSafe<void>("assistant_query_history_clear", { connectionId, bucket });
+}
+
+export function assistantQueryHistoryInsert(
+  connectionId: string,
+  bucket: string,
+  rawText: string,
+  summary: string,
+  confidence: string,
+  resultCount: number
+): Promise<void> {
+  return invokeSafe<void>("assistant_query_history_insert", {
+    connectionId,
+    bucket,
+    rawText,
+    summary,
+    confidence,
+    resultCount,
+  });
+}
+
+export function assistantPackExport(
+  connectionId: string,
+  bucket: string,
+  keys: string[],
+  format: ExportFormat,
+  savePath?: string
+): Promise<string> {
+  return invokeSafe<string>("assistant_pack_export", {
+    connectionId,
+    bucket,
+    keys,
+    format,
+    savePath: savePath ?? null,
+  });
+}
+
+export function assistantBuildProposal(
+  input: BuildProposalInput
+): Promise<ActionProposal> {
+  return invokeSafe<ActionProposal>("assistant_build_proposal", { input });
+}
+
+export function assistantExecuteProposal(
+  proposalId: string,
+  token: string
+): Promise<ExecutionResult> {
+  return invokeSafe<ExecutionResult>("assistant_execute_proposal", {
+    proposalId,
+    token,
+  });
+}
+
+export function assistantRejectProposal(
+  proposalId: string,
+  token: string
+): Promise<void> {
+  return invokeSafe<void>("assistant_reject_proposal", { proposalId, token });
+}
+
+export function assistantListProposals(
+  connectionId?: string
+): Promise<ProposalEntry[]> {
+  return invokeSafe<ProposalEntry[]>("assistant_list_proposals", {
+    connectionId: connectionId ?? null,
+  });
 }

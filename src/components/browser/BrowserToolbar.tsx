@@ -1,9 +1,11 @@
 import {
+  BarChart3,
   CopyPlus,
   Download,
   FolderPlus,
   Info,
   MoveRight,
+  PackageSearch,
   Pencil,
   RefreshCw,
   Database,
@@ -11,6 +13,8 @@ import {
   Search,
   Trash2,
   Upload,
+  ListChecks,
+  History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -33,6 +37,10 @@ interface BrowserToolbarProps {
   onCalculateBucketSize?: () => void;
   onIndexBucket?: () => void;
   onSearchIndex?: () => void;
+  onBucketReport?: () => void;
+  onOpenSmartPack?: () => void;
+  onBulkActions?: () => void;
+  onActionHistory?: () => void;
   indexSearchEnabled?: boolean;
 }
 
@@ -76,6 +84,10 @@ export function BrowserToolbar({
   onCalculateBucketSize,
   onIndexBucket,
   onSearchIndex,
+  onBucketReport,
+  onOpenSmartPack,
+  onBulkActions,
+  onActionHistory,
   indexSearchEnabled,
 }: BrowserToolbarProps) {
   return (
@@ -168,10 +180,42 @@ export function BrowserToolbar({
             )}
             {onSearchIndex && (
               <ToolbarButton
-                label="Search bucket index"
+                label="Smart bucket search"
                 icon={<Search className="h-4 w-4" />}
                 onClick={onSearchIndex}
                 disabled={disabled || !indexSearchEnabled}
+              />
+            )}
+            {onBucketReport && (
+              <ToolbarButton
+                label="Bucket analysis"
+                icon={<BarChart3 className="h-4 w-4" />}
+                onClick={onBucketReport}
+                disabled={disabled || !indexSearchEnabled}
+              />
+            )}
+            {onOpenSmartPack && (
+              <ToolbarButton
+                label="Smart Pack"
+                icon={<PackageSearch className="h-4 w-4" />}
+                onClick={onOpenSmartPack}
+                disabled={disabled || !indexSearchEnabled}
+              />
+            )}
+            {onBulkActions && (
+              <ToolbarButton
+                label="Bulk actions"
+                icon={<ListChecks className="h-4 w-4" />}
+                onClick={onBulkActions}
+                disabled={disabled || !indexSearchEnabled}
+              />
+            )}
+            {onActionHistory && (
+              <ToolbarButton
+                label="Action history"
+                icon={<History className="h-4 w-4" />}
+                onClick={onActionHistory}
+                disabled={disabled}
               />
             )}
           </>

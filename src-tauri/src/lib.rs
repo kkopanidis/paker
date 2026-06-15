@@ -1,3 +1,4 @@
+mod assistant;
 mod commands;
 mod error;
 mod index;
@@ -19,6 +20,27 @@ pub mod test_exports {
     pub use crate::storage::ConnectionProfile;
 }
 
+/// Public surface for the `paker-mcp` binary (`--features mcp`).
+/// Exposes only read-only, credential-free types and functions.
+#[cfg(feature = "mcp")]
+pub mod mcp_exports {
+    pub use crate::assistant::explain::{explain_error_code, ErrorExplanation};
+    pub use crate::assistant::query::IndexQuery;
+    pub use crate::assistant::reports::{BucketReport, PrefixStat};
+    pub use crate::assistant::templates::{
+        generate_cli_commands, CliCommandSuggestion, CliGenerateInput,
+    };
+    pub use crate::storage::bucket_index::{BucketIndexMeta, IndexedObject};
+    pub use crate::storage::object_cache::ObjectCacheManager;
+    pub use crate::storage::paths::{connections_path_in, index_db_path_in, is_portable_mode};
+    pub use crate::storage::profiles::{
+        get_connection_from, list_connections_from, ConnectionProfile,
+    };
+}
+
+use assistant::audit_log::AuditLog;
+use assistant::hmac_token::HmacKey;
+use assistant::proposal_store::ProposalStore;
 use commands::local_fs::LocalFsScope;
 use index::BucketIndexManager;
 use storage::{ObjectCacheManager, VaultManager};
@@ -46,6 +68,8 @@ pub fn run() {
         .manage(TransferManager::default())
         .manage(BucketIndexManager::default())
         .manage(VaultManager::default())
+        .manage(HmacKey::generate())
+        .manage(ProposalStore::default())
         .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
             let scope = LocalFsScope::new().map_err(|e| {
                 tracing::error!(error = %e, "failed to initialize local FS scope");
@@ -72,6 +96,24 @@ pub fn run() {
                 PakerError::Internal
             })?;
             app.manage(cache);
+
+            let audit_log = AuditLog::new(app.handle()).map_err(|e| {
+                tracing::error!(error = %e, "failed to initialize audit log");
+                Box::new(e) as Box<dyn std::error::Error>
+            })?;
+            app.manage(audit_log);
+
+            #[cfg(feature = "llm")]
+            {
+                use assistant::llm::try_load_model;
+                use crate::storage::paths::data_dir;
+                if let Ok(dir) = data_dir(app.handle()) {
+                    if let Some(handle) = try_load_model(&dir) {
+                        app.manage(handle);
+                    }
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(commands::app_commands!())

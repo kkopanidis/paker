@@ -1,0 +1,40 @@
+{
+  "_comment": "Example MCP server configurations for paker-mcp.",
+
+  "mcpServers": {
+    "paker": {
+      "command": "/Applications/Paker.app/Contents/MacOS/paker-mcp",
+      "args": [],
+      "env": {}
+    },
+
+    "paker-restricted": {
+      "command": "/Applications/Paker.app/Contents/MacOS/paker-mcp",
+      "args": [],
+      "env": {
+        "PAKER_MCP_ALLOWED_CONNECTIONS": "conn-staging,conn-dev"
+      }
+    },
+
+    "paker-custom-data-dir": {
+      "command": "/Applications/Paker.app/Contents/MacOS/paker-mcp",
+      "args": [],
+      "env": {
+        "PAKER_DATA_DIR": "/Users/alice/Library/Application Support/com.paker.app"
+      }
+    },
+
+    "paker-dev": {
+      "command": "cargo",
+      "args": [
+        "run",
+        "--manifest-path", "/path/to/paker/src-tauri/Cargo.toml",
+        "--features", "mcp",
+        "--bin", "paker-mcp"
+      ],
+      "env": {
+        "RUST_LOG": "paker_mcp=debug,paker_lib=debug"
+      }
+    }
+  }
+}

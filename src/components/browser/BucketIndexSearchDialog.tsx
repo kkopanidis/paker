@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -10,8 +10,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { searchBucketIndex } from "@/lib/tauri";
+import { assistantParseQuery, assistantRunIndexQuery } from "@/lib/tauri";
 import { formatBytes } from "@/lib/utils";
+import type { ParsedAssistantQuery } from "@/types/assistant";
 import type { IndexedObject } from "@/types/s3";
 
 interface BucketIndexSearchDialogProps {
@@ -32,17 +33,37 @@ export function BucketIndexSearchDialog({
   onNavigate,
 }: BucketIndexSearchDialogProps) {
   const [query, setQuery] = useState("");
+  const [parsed, setParsed] = useState<ParsedAssistantQuery | null>(null);
   const [results, setResults] = useState<IndexedObject[]>([]);
   const [loading, setLoading] = useState(false);
+  const [parsing, setParsing] = useState(false);
   const [searched, setSearched] = useState(false);
 
   useEffect(() => {
     if (!open) {
       setQuery("");
+      setParsed(null);
       setResults([]);
       setSearched(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !query.trim()) {
+      setParsed(null);
+      return;
+    }
+
+    const handle = window.setTimeout(() => {
+      setParsing(true);
+      void assistantParseQuery(query.trim())
+        .then(setParsed)
+        .catch(() => setParsed(null))
+        .finally(() => setParsing(false));
+    }, 250);
+
+    return () => window.clearTimeout(handle);
+  }, [open, query]);
 
   const runSearch = useCallback(async () => {
     if (!connectionId || !bucket || !query.trim()) return;
@@ -50,14 +71,21 @@ export function BucketIndexSearchDialog({
     setLoading(true);
     setSearched(true);
     try {
-      const hits = await searchBucketIndex(connectionId, bucket, query.trim());
+      const interpretation =
+        parsed ?? (await assistantParseQuery(query.trim()));
+      setParsed(interpretation);
+      const hits = await assistantRunIndexQuery(
+        connectionId,
+        bucket,
+        interpretation.query
+      );
       setResults(hits);
     } catch {
       setResults([]);
     } finally {
       setLoading(false);
     }
-  }, [connectionId, bucket, query]);
+  }, [connectionId, bucket, query, parsed]);
 
   const parentPrefix = (key: string): string => {
     const idx = key.lastIndexOf("/");
@@ -69,7 +97,10 @@ export function BucketIndexSearchDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Search bucket index</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            Smart bucket search
+          </DialogTitle>
         </DialogHeader>
 
         {indexStale && (
@@ -87,7 +118,7 @@ export function BucketIndexSearchDialog({
               onKeyDown={(e) => {
                 if (e.key === "Enter") void runSearch();
               }}
-              placeholder="Search object keys…"
+              placeholder="e.g. pdf files larger than 10mb last 30 days"
               className="pl-8"
               autoFocus
             />
@@ -96,6 +127,20 @@ export function BucketIndexSearchDialog({
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search"}
           </Button>
         </div>
+
+        {(parsing || parsed) && query.trim() && (
+          <p className="text-xs text-muted-foreground">
+            {parsing ? (
+              "Interpreting…"
+            ) : (
+              <>
+                <span className="font-medium text-foreground">Interpreted:</span>{" "}
+                {parsed?.summary}
+                {parsed?.confidence === "low" && " (simple text match)"}
+              </>
+            )}
+          </p>
+        )}
 
         <ScrollArea className="h-72 rounded-md border">
           {loading && (

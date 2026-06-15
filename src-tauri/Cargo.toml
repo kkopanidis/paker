@@ -10,7 +10,15 @@ name = "paker_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
+default = []
 integration-tests = []
+llm = ["dep:llama-cpp-2"]
+mcp = ["dep:dirs"]
+
+[[bin]]
+name = "paker-mcp"
+path = "src/bin/paker_mcp.rs"
+required-features = ["mcp"]
 
 [[test]]
 name = "s3_integration"
@@ -38,6 +46,7 @@ rand = "0.9"
 base64 = "0.22"
 anyhow = "1"
 thiserror = "2"
+dirs = { version = "5", optional = true }
 rusqlite = { version = "0.40", features = ["bundled"] }
 lru = "0.18"
 rfd = "0.17"
@@ -47,6 +56,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 zeroize = { version = "1", features = ["derive"] }
 parking_lot = "0.12"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+hmac = "0.12"
+sha2 = "0.10"
+glob = "0.3"
+llama-cpp-2 = { version = "0.1.146", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
