@@ -77,6 +77,28 @@ pub fn preview_cache_dir(app: &AppHandle) -> Result<PathBuf> {
     Ok(dir)
 }
 
+pub fn models_dir(app: &AppHandle) -> Result<PathBuf> {
+    let dir = data_dir(app)?.join("models");
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("failed to create models directory {}", dir.display()))?;
+    Ok(dir)
+}
+
+/// Standalone path helpers used by `paker-mcp` (no AppHandle required).
+
+/// Return the path to `connections.json` within an explicit base directory.
+pub fn connections_path_in(base: &Path) -> PathBuf {
+    base.join("connections.json")
+}
+
+/// Return the path to the SQLite index database within an explicit base directory.
+/// Creates the `index/` parent directory if it does not exist.
+pub fn index_db_path_in(base: &Path) -> Result<PathBuf> {
+    let path = base.join("index").join("index.db");
+    ensure_parent(&path)?;
+    Ok(path)
+}
+
 pub fn ensure_parent(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)

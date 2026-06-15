@@ -11,6 +11,11 @@ import { BucketPropertiesDialog } from "@/components/browser/BucketPropertiesDia
 import { BucketSidebar } from "@/components/browser/BucketSidebar";
 import { BucketIndexDialog } from "@/components/browser/BucketIndexDialog";
 import { BucketIndexSearchDialog } from "@/components/browser/BucketIndexSearchDialog";
+import { BucketReportDialog } from "@/components/browser/BucketReportDialog";
+import { SmartPackDrawer } from "@/components/browser/SmartPackDrawer";
+import { BulkActionBuilderDialog } from "@/components/browser/BulkActionBuilderDialog";
+import { ProposalReviewDialog } from "@/components/browser/ProposalReviewDialog";
+import { ProposalAuditDialog } from "@/components/browser/ProposalAuditDialog";
 import { SizeCalculationDialog } from "@/components/browser/SizeCalculationDialog";
 import { CopyMoveDialog, type CopyMoveMode } from "@/components/browser/CopyMoveDialog";
 import { DeleteConfirmDialog } from "@/components/browser/DeleteConfirmDialog";
@@ -55,6 +60,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { ObjectHeadResponse, PrefixSizeResult, S3Object } from "@/types/s3";
 import type { PrefixBookmark } from "@/types/ui";
+import type { ActionProposal, ExecutionResult } from "@/types/assistant";
 import { LocalPanelToggle } from "./LocalPanelToggle";
 import { SecurityToggle } from "./SecurityToggle";
 import { ThemeToggle } from "./ThemeToggle";
@@ -114,6 +120,12 @@ export function AppShell() {
   const [bucketSizeResult, setBucketSizeResult] = useState<PrefixSizeResult | null>(null);
   const [bucketIndexOpen, setBucketIndexOpen] = useState(false);
   const [bucketIndexSearchOpen, setBucketIndexSearchOpen] = useState(false);
+  const [bucketReportOpen, setBucketReportOpen] = useState(false);
+  const [smartPackOpen, setSmartPackOpen] = useState(false);
+  const [bulkActionsOpen, setBulkActionsOpen] = useState(false);
+  const [proposalReviewOpen, setProposalReviewOpen] = useState(false);
+  const [proposalAuditOpen, setProposalAuditOpen] = useState(false);
+  const [activeProposal, setActiveProposal] = useState<ActionProposal | null>(null);
 
   const connectionsPanelRef = usePanelRef();
   const bucketsPanelRef = usePanelRef();
@@ -845,6 +857,10 @@ export function AppShell() {
                 onCalculateBucketSize={openBucketSizeCalc}
                 onIndexBucket={() => setBucketIndexOpen(true)}
                 onSearchIndex={() => setBucketIndexSearchOpen(true)}
+                onBucketReport={() => setBucketReportOpen(true)}
+                onOpenSmartPack={() => setSmartPackOpen(true)}
+                onBulkActions={() => setBulkActionsOpen(true)}
+                onActionHistory={() => setProposalAuditOpen(true)}
                 indexSearchEnabled={bucketIndex.isSearchable}
               />
               <div className="flex min-h-0 flex-1">
@@ -1086,6 +1102,54 @@ export function AppShell() {
         bucket={browser.selectedBucket}
         indexStale={bucketIndex.meta?.status === "stale"}
         onNavigate={(prefix) => browser.navigateToPrefix(prefix)}
+      />
+
+      <BucketReportDialog
+        open={bucketReportOpen}
+        onOpenChange={setBucketReportOpen}
+        connectionId={connections.selected?.id ?? null}
+        bucket={browser.selectedBucket}
+      />
+
+      <SmartPackDrawer
+        open={smartPackOpen}
+        onOpenChange={setSmartPackOpen}
+        connectionId={connections.selected?.id ?? null}
+        bucket={browser.selectedBucket}
+        indexStale={bucketIndex.meta?.status === "stale"}
+        onNavigate={(prefix) => browser.navigateToPrefix(prefix)}
+      />
+
+      <BulkActionBuilderDialog
+        open={bulkActionsOpen}
+        onOpenChange={setBulkActionsOpen}
+        connectionId={connections.selected?.id ?? null}
+        bucket={browser.selectedBucket}
+        onProposalReady={(proposal) => {
+          setActiveProposal(proposal);
+          setProposalReviewOpen(true);
+        }}
+      />
+
+      <ProposalReviewDialog
+        proposal={activeProposal}
+        open={proposalReviewOpen}
+        onOpenChange={setProposalReviewOpen}
+        onComplete={(result: ExecutionResult | null) => {
+          if (result) {
+            toast.success(
+              `Completed: ${result.objectsAffected.toLocaleString()} objects affected`
+            );
+            void browser.refreshObjects();
+          }
+          setActiveProposal(null);
+        }}
+      />
+
+      <ProposalAuditDialog
+        open={proposalAuditOpen}
+        onOpenChange={setProposalAuditOpen}
+        connectionId={connections.selected?.id ?? null}
       />
     </div>
   );

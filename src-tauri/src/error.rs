@@ -32,6 +32,14 @@ pub enum PakerError {
     VaultAuthFailed,
     #[error("Vault unlock is temporarily blocked — try again later")]
     VaultUnlockBlocked,
+    #[error("Policy violation: {0}")]
+    PolicyViolation(String),
+    #[error("Proposal not found")]
+    ProposalNotFound,
+    #[error("Proposal already claimed")]
+    ProposalAlreadyClaimed,
+    #[error("Proposal has expired")]
+    ProposalExpired,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,6 +67,10 @@ impl PakerError {
             Self::VaultLocked => "vaultLocked",
             Self::VaultAuthFailed => "vaultAuthFailed",
             Self::VaultUnlockBlocked => "vaultUnlockBlocked",
+            Self::PolicyViolation(_) => "policyViolation",
+            Self::ProposalNotFound => "proposalNotFound",
+            Self::ProposalAlreadyClaimed => "proposalAlreadyClaimed",
+            Self::ProposalExpired => "proposalExpired",
         }
     }
 
@@ -91,6 +103,12 @@ impl PakerError {
                 Some("Check your master key or use OS recovery if you forgot it.")
             }
             Self::VaultUnlockBlocked => Some("Wait for the cooldown period before trying again."),
+            Self::PolicyViolation(_) => None,
+            Self::ProposalNotFound => Some("The proposal may have expired. Build a new proposal."),
+            Self::ProposalAlreadyClaimed => {
+                Some("This proposal was already executed or rejected.")
+            }
+            Self::ProposalExpired => Some("Build a new proposal and approve within 15 minutes."),
         }
     }
 
@@ -201,6 +219,10 @@ mod tests {
             PakerError::VaultLocked,
             PakerError::VaultAuthFailed,
             PakerError::VaultUnlockBlocked,
+            PakerError::PolicyViolation("test".to_string()),
+            PakerError::ProposalNotFound,
+            PakerError::ProposalAlreadyClaimed,
+            PakerError::ProposalExpired,
         ]
     }
 
@@ -220,6 +242,10 @@ mod tests {
             ("vaultLocked", PakerError::VaultLocked),
             ("vaultAuthFailed", PakerError::VaultAuthFailed),
             ("vaultUnlockBlocked", PakerError::VaultUnlockBlocked),
+            ("policyViolation", PakerError::PolicyViolation("x".into())),
+            ("proposalNotFound", PakerError::ProposalNotFound),
+            ("proposalAlreadyClaimed", PakerError::ProposalAlreadyClaimed),
+            ("proposalExpired", PakerError::ProposalExpired),
         ];
         for (code, err) in expected {
             assert_eq!(err.code(), code);
@@ -233,7 +259,9 @@ mod tests {
         for err in all_variants() {
             if matches!(
                 err,
-                PakerError::InvalidInput(_) | PakerError::TransferNotFound
+                PakerError::InvalidInput(_)
+                    | PakerError::TransferNotFound
+                    | PakerError::PolicyViolation(_)
             ) {
                 continue;
             }

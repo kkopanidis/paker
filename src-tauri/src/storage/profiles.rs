@@ -2,6 +2,7 @@ use super::paths;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::path::Path;
 use tauri::AppHandle;
 use uuid::Uuid;
 
@@ -33,17 +34,34 @@ pub struct SaveConnectionInput {
 
 fn read_all(app: &AppHandle) -> Result<Vec<ConnectionProfile>> {
     let path = paths::connections_path(app)?;
+    read_all_from_path(&path)
+}
+
+fn read_all_from_path(path: &std::path::PathBuf) -> Result<Vec<ConnectionProfile>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
 
     let contents =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
     if contents.trim().is_empty() {
         return Ok(Vec::new());
     }
 
     serde_json::from_str(&contents).context("failed to parse connections.json")
+}
+
+/// Standalone variant: read all connection profiles from an explicit data directory.
+/// Used by `paker-mcp` which has no Tauri runtime.
+pub fn list_connections_from(base: &Path) -> Result<Vec<ConnectionProfile>> {
+    read_all_from_path(&paths::connections_path_in(base))
+}
+
+/// Standalone variant: look up a single connection profile by ID.
+pub fn get_connection_from(base: &Path, id: &str) -> Result<Option<ConnectionProfile>> {
+    Ok(list_connections_from(base)?
+        .into_iter()
+        .find(|p| p.id == id))
 }
 
 fn write_all(app: &AppHandle, profiles: &[ConnectionProfile]) -> Result<()> {

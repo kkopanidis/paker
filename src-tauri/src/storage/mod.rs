@@ -1,3 +1,4 @@
+pub mod assistant_history;
 pub mod bucket_index;
 pub mod object_cache;
 pub mod paths;
@@ -6,6 +7,7 @@ pub mod secrets;
 pub mod ui_state;
 pub mod vault;
 
+pub use assistant_history::QueryHistoryItem;
 pub use bucket_index::{bucket_index_job_id, BucketIndexMeta, BucketIndexProgress, IndexedObject};
 pub use object_cache::ObjectCacheManager;
 pub use profiles::{

@@ -1,4 +1,6 @@
 use super::object_cache::ObjectCacheManager;
+use crate::assistant::query::IndexQuery;
+use crate::assistant::reports::{BucketReport, PrefixStat};
 use anyhow::{Context, Result};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -198,6 +200,183 @@ impl ObjectCacheManager {
             .context("failed to read bucket index search results")
     }
 
+    pub fn query_bucket_index(
+        &self,
+        connection_id: &str,
+        bucket: &str,
+        query: &IndexQuery,
+    ) -> Result<Vec<IndexedObject>> {
+        let mut sql = String::from(
+            "SELECT key, size, last_modified, etag, storage_class
+             FROM bucket_index_objects
+             WHERE connection_id = ?1 AND bucket = ?2",
+        );
+
+        let mut bind_values: Vec<rusqlite::types::Value> = vec![
+            connection_id.to_string().into(),
+            bucket.to_string().into(),
+        ];
+        let mut idx = 3;
+
+        if let Some(prefix) = &query.prefix {
+            sql.push_str(&format!(" AND key LIKE ?{idx} ESCAPE '\\'"));
+            let pattern = if prefix.ends_with('/') {
+                format!("{}%", prefix.replace('%', "\\%").replace('_', "\\_"))
+            } else {
+                format!("{}%", prefix.replace('%', "\\%").replace('_', "\\_"))
+            };
+            bind_values.push(pattern.into());
+            idx += 1;
+        }
+
+        if let Some(pattern) = &query.key_pattern {
+            sql.push_str(&format!(" AND key LIKE ?{idx} ESCAPE '\\'"));
+            bind_values.push(pattern.clone().into());
+            idx += 1;
+        }
+
+        if let Some(min) = query.min_size {
+            sql.push_str(&format!(" AND size >= ?{idx}"));
+            bind_values.push((min as i64).into());
+            idx += 1;
+        }
+
+        if let Some(max) = query.max_size {
+            sql.push_str(&format!(" AND size <= ?{idx}"));
+            bind_values.push((max as i64).into());
+            idx += 1;
+        }
+
+        if let Some(after) = &query.modified_after {
+            sql.push_str(&format!(" AND last_modified >= ?{idx}"));
+            bind_values.push(after.clone().into());
+            idx += 1;
+        }
+
+        if let Some(before) = &query.modified_before {
+            sql.push_str(&format!(" AND last_modified <= ?{idx}"));
+            bind_values.push(before.clone().into());
+            idx += 1;
+        }
+
+        if let Some(classes) = &query.storage_class {
+            if !classes.is_empty() {
+                let placeholders: Vec<String> = (0..classes.len())
+                    .map(|i| format!("?{}", idx + i))
+                    .collect();
+                sql.push_str(&format!(
+                    " AND UPPER(COALESCE(storage_class, '')) IN ({})",
+                    placeholders.join(", ")
+                ));
+                for class in classes {
+                    bind_values.push(class.to_uppercase().into());
+                }
+                idx += classes.len();
+            }
+        }
+
+        sql.push_str(&format!(" ORDER BY key LIMIT ?{idx} OFFSET ?{}", idx + 1));
+        bind_values.push((query.limit as i64).into());
+        bind_values.push((query.offset as i64).into());
+
+        let conn = self.db();
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::ToSql> = bind_values
+            .iter()
+            .map(|v| v as &dyn rusqlite::ToSql)
+            .collect();
+
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok(IndexedObject {
+                key: row.get(0)?,
+                size: row.get(1)?,
+                last_modified: row.get(2)?,
+                etag: row.get(3)?,
+                storage_class: row.get(4)?,
+            })
+        })?;
+
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .context("failed to read structured bucket index query results")
+    }
+
+    pub fn build_bucket_report(
+        &self,
+        connection_id: &str,
+        bucket: &str,
+        top_n: u32,
+    ) -> Result<BucketReport> {
+        let conn = self.db();
+        let small_threshold: i64 = 1024;
+
+        let (total_objects, total_bytes): (i64, i64) = conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(size), 0)
+                 FROM bucket_index_objects
+                 WHERE connection_id = ?1 AND bucket = ?2",
+                params![connection_id, bucket],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .context("failed to aggregate bucket totals")?;
+
+        let (glacier_count, glacier_bytes): (i64, i64) = conn
+            .query_row(
+                "SELECT COUNT(*), COALESCE(SUM(size), 0)
+                 FROM bucket_index_objects
+                 WHERE connection_id = ?1 AND bucket = ?2
+                   AND UPPER(COALESCE(storage_class, '')) LIKE '%GLACIER%'",
+                params![connection_id, bucket],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .context("failed to aggregate glacier stats")?;
+
+        let small_file_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM bucket_index_objects
+                 WHERE connection_id = ?1 AND bucket = ?2 AND size < ?3",
+                params![connection_id, bucket, small_threshold],
+                |row| row.get(0),
+            )
+            .context("failed to count small files")?;
+
+        let mut stmt = conn.prepare(
+            "SELECT
+                CASE
+                    WHEN instr(key, '/') > 0 THEN substr(key, 1, instr(key, '/'))
+                    ELSE key || '/'
+                END AS prefix_group,
+                COUNT(*) AS cnt,
+                COALESCE(SUM(size), 0) AS bytes
+             FROM bucket_index_objects
+             WHERE connection_id = ?1 AND bucket = ?2
+             GROUP BY prefix_group
+             ORDER BY bytes DESC
+             LIMIT ?3",
+        )?;
+
+        let rows = stmt.query_map(params![connection_id, bucket, top_n], |row| {
+            Ok(PrefixStat {
+                prefix: row.get(0)?,
+                object_count: row.get::<_, i64>(1)? as u64,
+                total_bytes: row.get::<_, i64>(2)? as u64,
+            })
+        })?;
+
+        let top_prefixes: Vec<PrefixStat> = rows
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .context("failed to read prefix stats")?;
+
+        Ok(BucketReport {
+            total_objects: total_objects.max(0) as u64,
+            total_bytes: total_bytes.max(0) as u64,
+            top_prefixes_by_bytes: top_prefixes,
+            glacier_object_count: glacier_count.max(0) as u64,
+            glacier_bytes: glacier_bytes.max(0) as u64,
+            small_file_count: small_file_count.max(0) as u64,
+            small_file_threshold_bytes: small_threshold as u64,
+        })
+    }
+
     pub fn get_prefix_max_last_modified(
         &self,
         connection_id: &str,
@@ -215,6 +394,57 @@ impl ObjectCacheManager {
         )
         .ok()
         .flatten()
+    }
+
+    pub fn get_objects_by_keys(
+        &self,
+        connection_id: &str,
+        bucket: &str,
+        keys: &[String],
+    ) -> Result<Vec<IndexedObject>> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let placeholders: Vec<String> = (0..keys.len())
+            .map(|i| format!("?{}", i + 3))
+            .collect();
+        let sql = format!(
+            "SELECT key, size, last_modified, etag, storage_class
+             FROM bucket_index_objects
+             WHERE connection_id = ?1 AND bucket = ?2
+               AND key IN ({})
+             ORDER BY key",
+            placeholders.join(", ")
+        );
+
+        let mut bind_values: Vec<rusqlite::types::Value> = vec![
+            connection_id.to_string().into(),
+            bucket.to_string().into(),
+        ];
+        for key in keys {
+            bind_values.push(key.clone().into());
+        }
+
+        let conn = self.db();
+        let mut stmt = conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::ToSql> = bind_values
+            .iter()
+            .map(|v| v as &dyn rusqlite::ToSql)
+            .collect();
+
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok(IndexedObject {
+                key: row.get(0)?,
+                size: row.get(1)?,
+                last_modified: row.get(2)?,
+                etag: row.get(3)?,
+                storage_class: row.get(4)?,
+            })
+        })?;
+
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .context("failed to fetch objects by keys")
     }
 
     pub fn export_bucket_index_csv(&self, connection_id: &str, bucket: &str) -> Result<String> {
@@ -267,6 +497,7 @@ fn csv_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assistant::query::IndexQuery;
     use crate::storage::object_cache::ObjectCacheManager;
     use std::fs;
     use uuid::Uuid;
@@ -304,6 +535,18 @@ mod tests {
         cache
             .upsert_indexed_objects_batch("conn-1", "bucket", &objects)
             .expect("batch insert");
+
+        let q = IndexQuery {
+            min_size: Some(80),
+            key_pattern: Some("%cat%".to_string()),
+            limit: 500,
+            ..Default::default()
+        };
+        let hits = cache
+            .query_bucket_index("conn-1", "bucket", &q)
+            .expect("structured query");
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].key, "photos/cat.jpg");
 
         let hits = cache
             .search_bucket_index("conn-1", "bucket", "cat", 10, 0)

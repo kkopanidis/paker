@@ -1,3 +1,4 @@
+pub mod assistant;
 pub mod bucket_index;
 pub mod connections;
 pub mod local_fs;
@@ -61,6 +62,22 @@ macro_rules! app_commands {
             $crate::commands::bucket_index::cancel_bucket_index,
             $crate::commands::bucket_index::search_bucket_index,
             $crate::commands::bucket_index::export_bucket_index_csv,
+            $crate::commands::assistant::assistant_parse_query,
+            $crate::commands::assistant::assistant_get_model_status,
+            $crate::commands::assistant::assistant_open_models_folder,
+            $crate::commands::assistant::assistant_parse_query_llm,
+            $crate::commands::assistant::assistant_run_index_query,
+            $crate::commands::assistant::assistant_get_bucket_report,
+            $crate::commands::assistant::assistant_explain_error,
+            $crate::commands::assistant::assistant_generate_cli,
+            $crate::commands::assistant::assistant_query_history_list,
+            $crate::commands::assistant::assistant_query_history_clear,
+            $crate::commands::assistant::assistant_query_history_insert,
+            $crate::commands::assistant::assistant_pack_export,
+            $crate::commands::assistant::assistant_build_proposal,
+            $crate::commands::assistant::assistant_execute_proposal,
+            $crate::commands::assistant::assistant_reject_proposal,
+            $crate::commands::assistant::assistant_list_proposals,
             $crate::commands::update::check_for_update,
             $crate::commands::vault::get_vault_status,
             $crate::commands::vault::setup_vault,
