@@ -37,3 +37,23 @@ export function looksLikePath(value: string): boolean {
   if (trimmed.includes("/")) return true;
   return /^s3:/i.test(trimmed);
 }
+
+export function isS3Object(value: unknown): value is S3Object {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "key" in value &&
+    "name" in value &&
+    typeof (value as S3Object).key === "string"
+  );
+}
+
+export function resolveDeleteTargets(
+  objects: unknown,
+  selectedObjects: S3Object[]
+): S3Object[] {
+  if (Array.isArray(objects)) {
+    return objects;
+  }
+  return selectedObjects;
+}

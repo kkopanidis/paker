@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-06-22
+
+### Fixed
+
+- Toolbar Delete and Rename no longer fail silently when clicked (click event was passed as the delete target)
+- Deleting a folder now removes all objects under that prefix, not just the folder marker
+
 ## [0.8.0] - 2026-06-10
 
 ### Added

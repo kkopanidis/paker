@@ -31,7 +31,7 @@ vi.mock("@/lib/tauri", async (importOriginal) => {
 beforeEach(() => {
   vi.mocked(readListCache).mockResolvedValue(null);
   vi.mocked(listObjects).mockResolvedValue(emptyListing);
-  vi.mocked(deleteObjects).mockResolvedValue(undefined);
+  vi.mocked(deleteObjects).mockResolvedValue({ deletedCount: 1 });
 });
 
 afterEach(() => {
@@ -155,7 +155,7 @@ describe("useBrowser", () => {
     });
 
     expect(deleteObjects).toHaveBeenCalledWith("conn-a", "bucket-a", ["remove-me.txt"]);
-    expect(toast.success).toHaveBeenCalledWith("Delete completed");
+    expect(toast.success).toHaveBeenCalledWith("Deleted 1 object");
     expect(listObjects).toHaveBeenCalledWith("conn-a", "bucket-a", "", undefined, true);
   });
 

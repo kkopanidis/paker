@@ -52,6 +52,7 @@ import {
   removeBookmark,
   setConnectionNav,
 } from "@/lib/tauri";
+import { resolveDeleteTargets, isS3Object } from "@/lib/browser-utils";
 import { cn } from "@/lib/utils";
 import type { ObjectHeadResponse, PrefixSizeResult, S3Object } from "@/types/s3";
 import type { PrefixBookmark } from "@/types/ui";
@@ -119,7 +120,7 @@ export function AppShell() {
   const bucketsPanelRef = usePanelRef();
 
   const openRename = (object?: S3Object) => {
-    const target = object ?? browser.selectedObjects[0];
+    const target = isS3Object(object) ? object : browser.selectedObjects[0];
     if (!target) return;
     setRenameTarget(target);
     browser.selectKeys([target.key]);
@@ -224,7 +225,7 @@ export function AppShell() {
   };
 
   const openDeleteConfirm = (objects?: S3Object[]) => {
-    const targets = objects ?? browser.selectedObjects;
+    const targets = resolveDeleteTargets(objects, browser.selectedObjects);
     if (targets.length === 0) return;
     setPendingDelete(targets);
     browser.selectKeys(targets.map((object) => object.key));
@@ -835,8 +836,8 @@ export function AppShell() {
                 singleSelection={browser.selectedObjects.length === 1}
                 onUpload={() => void startUpload()}
                 onDownload={() => void browser.download()}
-                onDelete={openDeleteConfirm}
-                onRename={openRename}
+                onDelete={() => openDeleteConfirm()}
+                onRename={() => openRename()}
                 onNewFolder={() => setFolderOpen(true)}
                 onRefresh={() => void browser.refreshObjects()}
                 onCopyTo={() => openCopyMove("copy")}
@@ -1004,6 +1005,11 @@ export function AppShell() {
           pendingDelete.length > 0
             ? pendingDelete.map((object) => object.name)
             : browser.selectedObjects.map((object) => object.name)
+        }
+        hasFolders={
+          (pendingDelete.length > 0 ? pendingDelete : browser.selectedObjects).some(
+            (object) => object.isFolder
+          )
         }
         onConfirm={() => void confirmDelete()}
         busy={browser.busy}

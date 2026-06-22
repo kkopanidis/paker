@@ -1,6 +1,6 @@
 [package]
 name = "paker"
-version = "0.8.0"
+version = "0.8.1"
 description = "Paker S3 desktop browser"
 authors = ["Konstantinos Kopanidis"]
 edition = "2021"

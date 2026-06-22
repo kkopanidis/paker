@@ -5,8 +5,8 @@ use common::{
     test_connection_profile, unique_key, MINIO_SECRET_KEY, TEST_BUCKET,
 };
 use paker_lib::test_exports::{
-    create_folder, delete_objects_batch, head_object, list_buckets, list_objects_v2, object_exists,
-    rename_object, verify_bucket_access,
+    create_folder, delete_objects_batch, delete_objects_expanded, head_object, list_buckets,
+    list_objects_v2, object_exists, rename_object, verify_bucket_access,
 };
 const IGNORE_REASON: &str =
     "requires MinIO; set PAKER_TEST_S3_ENDPOINT and run with --ignored, or use CI rust-integration job";
@@ -110,6 +110,61 @@ async fn delete_objects_removes_keys() {
             .await
             .expect("object_exists after delete"),
         "object should be gone after delete"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires MinIO (PAKER_TEST_S3_ENDPOINT); CI runs with --ignored"]
+async fn delete_folder_cascades_to_nested_objects() {
+    require_minio().await.expect(IGNORE_REASON);
+    let client = test_client().await;
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let prefix = format!("integration-test/{run_id}/");
+    let folder_name = "cascade-folder";
+    let folder_prefix = format!("{prefix}{folder_name}/");
+    let nested_key = format!("{folder_prefix}sub/nested.txt");
+
+    create_folder(&client, TEST_BUCKET, &prefix, folder_name)
+        .await
+        .expect("create_folder");
+    put_test_bytes(&client, &nested_key, b"nested payload").await;
+
+    let listing = list_objects_v2(&client, TEST_BUCKET, Some(&prefix), None)
+        .await
+        .expect("list before delete");
+    assert!(
+        listing.common_prefixes.iter().any(|p| p == &folder_prefix),
+        "expected folder prefix {folder_prefix}, got {:?}",
+        listing.common_prefixes
+    );
+    assert!(
+        object_exists(&client, TEST_BUCKET, &nested_key)
+            .await
+            .expect("nested object exists before delete"),
+        "nested object should exist before delete"
+    );
+
+    let deleted = delete_objects_expanded(&client, TEST_BUCKET, &[folder_prefix.clone()])
+        .await
+        .expect("delete_objects_expanded");
+    assert!(
+        deleted >= 2,
+        "expected folder marker and nested object to be deleted, got {deleted}"
+    );
+
+    let after = list_objects_v2(&client, TEST_BUCKET, Some(&prefix), None)
+        .await
+        .expect("list after delete");
+    assert!(
+        !after.common_prefixes.iter().any(|p| p == &folder_prefix),
+        "folder prefix should be gone after cascade delete, got {:?}",
+        after.common_prefixes
+    );
+    assert!(
+        !object_exists(&client, TEST_BUCKET, &nested_key)
+            .await
+            .expect("nested object gone"),
+        "nested object should be gone after cascade delete"
     );
 }
 

@@ -512,15 +512,26 @@ export function useBrowser(connection: S3Connection | null) {
   const removeObjects = useCallback(
     async (targets: S3Object[]) => {
       if (!connection || !selectedBucket || targets.length === 0) return;
-      await runAction("Delete completed", () =>
-        deleteObjects(
+      setBusy(true);
+      try {
+        const { deletedCount } = await deleteObjects(
           connection.id,
           selectedBucket,
           targets.map((o) => o.key)
-        )
-      );
+        );
+        const successLabel =
+          deletedCount === 1 ? "Deleted 1 object" : `Deleted ${deletedCount} objects`;
+        toast.success(successLabel);
+        await loadObjects(true);
+      } catch (error) {
+        toast.error("Delete failed", {
+          description: formatIpcError(error),
+        });
+      } finally {
+        setBusy(false);
+      }
     },
-    [connection, selectedBucket, runAction]
+    [connection, selectedBucket, loadObjects]
   );
 
   const removeSelected = useCallback(async () => {

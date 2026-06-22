@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterObjects, looksLikePath, matchesTypeFilter } from "./browser-utils";
+import { filterObjects, looksLikePath, matchesTypeFilter, resolveDeleteTargets } from "./browser-utils";
 import type { S3Object } from "@/types/s3";
 
 const folder: S3Object = {
@@ -133,5 +133,19 @@ describe("looksLikePath", () => {
     expect(looksLikePath("readme")).toBe(false);
     expect(looksLikePath("cat.jpg")).toBe(false);
     expect(looksLikePath("my-bucket")).toBe(false);
+  });
+});
+
+describe("resolveDeleteTargets", () => {
+  it("uses selected objects when the first argument is not an array", () => {
+    const selected = [file];
+    const event = { type: "click" } as unknown as S3Object[];
+
+    expect(resolveDeleteTargets(event, selected)).toEqual(selected);
+    expect(resolveDeleteTargets(undefined, selected)).toEqual(selected);
+  });
+
+  it("uses explicit object targets when an array is provided", () => {
+    expect(resolveDeleteTargets([folder], [file])).toEqual([folder]);
   });
 });

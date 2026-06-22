@@ -266,8 +266,12 @@ export function deleteObjects(
   connectionId: string,
   bucket: string,
   keys: string[]
-): Promise<void> {
-  return invokeSafe<void>("delete_objects", { connectionId, bucket, keys });
+): Promise<{ deletedCount: number }> {
+  return invokeSafe<{ deletedCount: number }>("delete_objects", {
+    connectionId,
+    bucket,
+    keys,
+  });
 }
 
 export function renameObject(

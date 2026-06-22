@@ -1136,6 +1136,91 @@ pub async fn get_object_to_path(
     Ok(())
 }
 
+pub async fn list_keys_under_prefix(
+    client: &Client,
+    bucket: &str,
+    prefix: &str,
+) -> Result<Vec<String>, PakerError> {
+    let normalized = normalize_prefix(prefix);
+    let mut continuation_token: Option<String> = None;
+    let mut keys = Vec::new();
+
+    loop {
+        let mut request = client.list_objects_v2().bucket(bucket).max_keys(1000);
+
+        if !normalized.is_empty() {
+            request = request.prefix(&normalized);
+        }
+
+        if let Some(token) = continuation_token.as_deref() {
+            request = request.continuation_token(token);
+        }
+
+        let response = request.send().await.map_err(map_s3_sdk_error)?;
+
+        for object in response.contents() {
+            let Some(key) = object.key() else {
+                continue;
+            };
+            keys.push(key.to_string());
+        }
+
+        if !response.is_truncated().unwrap_or(false) {
+            break;
+        }
+
+        continuation_token = response.next_continuation_token().map(|s| s.to_string());
+
+        if continuation_token.is_none() {
+            break;
+        }
+    }
+
+    Ok(keys)
+}
+
+pub async fn expand_keys_for_delete(
+    client: &Client,
+    bucket: &str,
+    keys: &[String],
+) -> Result<Vec<String>, PakerError> {
+    let mut expanded = Vec::new();
+
+    for key in keys {
+        if key.ends_with('/') {
+            expanded.push(key.clone());
+            expanded.extend(list_keys_under_prefix(client, bucket, key).await?);
+        } else {
+            expanded.push(key.clone());
+        }
+    }
+
+    expanded.sort();
+    expanded.dedup();
+    Ok(expanded)
+}
+
+pub async fn delete_objects_expanded(
+    client: &Client,
+    bucket: &str,
+    keys: &[String],
+) -> Result<usize, PakerError> {
+    if keys.is_empty() {
+        return Ok(0);
+    }
+
+    let expanded = expand_keys_for_delete(client, bucket, keys).await?;
+    if expanded.is_empty() {
+        return Ok(0);
+    }
+
+    for chunk in expanded.chunks(1000) {
+        delete_objects_batch(client, bucket, chunk).await?;
+    }
+
+    Ok(expanded.len())
+}
+
 pub async fn delete_objects_batch(
     client: &Client,
     bucket: &str,

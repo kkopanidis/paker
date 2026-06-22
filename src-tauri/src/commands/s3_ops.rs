@@ -3,7 +3,7 @@ use crate::error::{clamp_presign_expiry_secs, into_ipc_error, PakerError};
 use crate::s3::build_client_for_id;
 use crate::s3::operations::{
     calculate_prefix_size as s3_calculate_prefix_size, copy_objects_batch as s3_copy_objects_batch,
-    create_folder as s3_create_folder, delete_objects_batch,
+    create_folder as s3_create_folder, delete_objects_expanded,
     get_bucket_metadata as s3_get_bucket_metadata, get_object_to_path,
     head_object as s3_head_object, join_prefix, list_buckets as s3_list_buckets, list_objects_v2,
     local_dest_path, move_objects_batch as s3_move_objects_batch, object_exists,
@@ -486,19 +486,30 @@ pub async fn resume_transfer(app: AppHandle, transfer_id: String) -> Result<(), 
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteObjectsResult {
+    pub deleted_count: usize,
+}
+
 #[tauri::command]
 pub async fn delete_objects(
     app: AppHandle,
     connection_id: String,
     bucket: String,
     keys: Vec<String>,
-) -> Result<(), PakerError> {
+) -> Result<DeleteObjectsResult, PakerError> {
     let client = build_client_for_id(&app, &connection_id).await?;
-    delete_objects_batch(&client, &bucket, &keys).await?;
+    let deleted_count = delete_objects_expanded(&client, &bucket, &keys).await?;
 
     let cache = app.state::<ObjectCacheManager>();
+    for key in &keys {
+        if key.ends_with('/') {
+            invalidate_after_mutation(&cache, &connection_id, &bucket, key);
+        }
+    }
     invalidate_for_keys(&cache, &connection_id, &bucket, &keys);
-    Ok(())
+    Ok(DeleteObjectsResult { deleted_count })
 }
 
 #[tauri::command]

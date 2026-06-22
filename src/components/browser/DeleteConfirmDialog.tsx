@@ -16,6 +16,7 @@ interface DeleteConfirmDialogProps {
   onOpenChange: (open: boolean) => void;
   itemCount: number;
   itemNames: string[];
+  hasFolders?: boolean;
   onConfirm: () => void;
   busy?: boolean;
 }
@@ -25,6 +26,7 @@ export function DeleteConfirmDialog({
   onOpenChange,
   itemCount,
   itemNames,
+  hasFolders,
   onConfirm,
   busy,
 }: DeleteConfirmDialogProps) {
@@ -41,6 +43,12 @@ export function DeleteConfirmDialog({
           <AlertDialogDescription asChild>
             <div className="space-y-2">
               <p>This action cannot be undone.</p>
+              {hasFolders ? (
+                <p>
+                  Selected folders will be deleted together with all files and subfolders inside
+                  them.
+                </p>
+              ) : null}
               {previewNames.length > 0 && (
                 <ul className="max-h-32 overflow-y-auto rounded-md border bg-muted/40 px-3 py-2 text-left text-sm text-foreground">
                   {previewNames.map((name) => (
