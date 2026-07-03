@@ -25,6 +25,7 @@ describe("useConnections", () => {
         region: "us-east-1",
         accessKeyId: "minioadmin",
         forcePathStyle: true,
+        skipTlsVerify: false,
       },
       {
         id: "conn-2",
@@ -32,6 +33,7 @@ describe("useConnections", () => {
         region: "eu-west-1",
         accessKeyId: "AKIAEXAMPLE",
         forcePathStyle: false,
+        skipTlsVerify: false,
       },
     ];
 

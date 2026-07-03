@@ -5,6 +5,7 @@ export interface S3Connection {
   region: string;
   accessKeyId: string;
   forcePathStyle: boolean;
+  skipTlsVerify: boolean;
   defaultBucket?: string;
 }
 
@@ -17,6 +18,7 @@ export interface S3ConnectionInput {
   /** STS session token — sent on save only; never returned from list/get. */
   sessionToken?: string;
   forcePathStyle: boolean;
+  skipTlsVerify: boolean;
   defaultBucket?: string;
 }
 

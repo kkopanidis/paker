@@ -36,8 +36,14 @@ const emptyForm: S3ConnectionInput = {
   secretAccessKey: "",
   sessionToken: "",
   forcePathStyle: false,
+  skipTlsVerify: false,
   defaultBucket: "",
 };
+
+function endpointUsesHttps(endpoint: string | undefined): boolean {
+  const trimmed = endpoint?.trim();
+  return Boolean(trimmed && trimmed.startsWith("https://"));
+}
 
 export function ConnectionForm({ open, onOpenChange, connection, onSubmit }: ConnectionFormProps) {
   const [form, setForm] = useState<S3ConnectionInput>(emptyForm);
@@ -56,6 +62,7 @@ export function ConnectionForm({ open, onOpenChange, connection, onSubmit }: Con
         secretAccessKey: "",
         sessionToken: "",
         forcePathStyle: connection.forcePathStyle,
+        skipTlsVerify: connection.skipTlsVerify,
         defaultBucket: connection.defaultBucket ?? "",
       });
       const match = PROVIDER_PRESETS.find(
@@ -76,6 +83,8 @@ export function ConnectionForm({ open, onOpenChange, connection, onSubmit }: Con
     });
     setPresetId("aws");
   }, [open, connection]);
+
+  const skipTlsVerifyEnabled = endpointUsesHttps(form.endpoint);
 
   const applyPreset = (id: string) => {
     const preset = PROVIDER_PRESETS.find((p) => p.id === id);
@@ -232,6 +241,27 @@ export function ConnectionForm({ open, onOpenChange, connection, onSubmit }: Con
               onCheckedChange={(checked) => update("forcePathStyle", checked === true)}
             />
             <Label htmlFor="forcePathStyle">Force path-style addressing</Label>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="skipTlsVerify"
+                checked={form.skipTlsVerify}
+                disabled={!skipTlsVerifyEnabled}
+                onCheckedChange={(checked) => update("skipTlsVerify", checked === true)}
+              />
+              <Label
+                htmlFor="skipTlsVerify"
+                className={!skipTlsVerifyEnabled ? "text-muted-foreground" : undefined}
+              >
+                Skip TLS certificate verification
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Only applies to HTTPS endpoints. Use for self-signed certificates in development — not
+              recommended for production.
+            </p>
           </div>
 
           <DialogFooter>

@@ -55,6 +55,9 @@ describe("ConnectionForm", () => {
     const { onSubmit } = renderForm();
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test S3" } });
+    fireEvent.change(screen.getByLabelText("Endpoint"), {
+      target: { value: "https://minio.local:9000" },
+    });
     fireEvent.change(screen.getByLabelText("Access key ID"), {
       target: { value: "AKIATEST" },
     });
@@ -68,8 +71,60 @@ describe("ConnectionForm", () => {
       expect(onSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "Test S3",
+          endpoint: "https://minio.local:9000",
           accessKeyId: "AKIATEST",
           secretAccessKey: "secret-key",
+          skipTlsVerify: false,
+        }),
+        undefined
+      );
+    });
+  });
+
+  it("disables skip TLS verification for HTTP endpoints", async () => {
+    renderForm();
+
+    fireEvent.change(screen.getByLabelText("Endpoint"), {
+      target: { value: "http://127.0.0.1:9000" },
+    });
+
+    const checkbox = screen.getByLabelText("Skip TLS certificate verification");
+    expect(checkbox).toHaveProperty("disabled", true);
+  });
+
+  it("enables skip TLS verification for HTTPS endpoints", async () => {
+    renderForm();
+
+    fireEvent.change(screen.getByLabelText("Endpoint"), {
+      target: { value: "https://minio.local:9000" },
+    });
+
+    const checkbox = screen.getByLabelText("Skip TLS certificate verification");
+    expect(checkbox).toHaveProperty("disabled", false);
+    fireEvent.click(checkbox);
+    expect(checkbox.getAttribute("data-state")).toBe("checked");
+  });
+
+  it("includes skipTlsVerify in submit payload when enabled", async () => {
+    const { onSubmit } = renderForm();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Dev MinIO" } });
+    fireEvent.change(screen.getByLabelText("Endpoint"), {
+      target: { value: "https://minio.local:9000" },
+    });
+    fireEvent.change(screen.getByLabelText("Access key ID"), {
+      target: { value: "AKIATEST" },
+    });
+    fireEvent.change(screen.getByLabelText("Secret access key"), {
+      target: { value: "secret-key" },
+    });
+    fireEvent.click(screen.getByLabelText("Skip TLS certificate verification"));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          skipTlsVerify: true,
         }),
         undefined
       );

@@ -14,6 +14,8 @@ pub struct ConnectionProfile {
     pub region: String,
     pub access_key_id: String,
     pub force_path_style: bool,
+    #[serde(default)]
+    pub skip_tls_verify: bool,
     pub default_bucket: Option<String>,
 }
 
@@ -28,6 +30,8 @@ pub struct SaveConnectionInput {
     pub secret_access_key: Option<String>,
     pub session_token: Option<String>,
     pub force_path_style: bool,
+    #[serde(default)]
+    pub skip_tls_verify: bool,
     pub default_bucket: Option<String>,
 }
 
@@ -76,6 +80,7 @@ pub fn save_connection(app: &AppHandle, input: SaveConnectionInput) -> Result<Co
         region: input.region,
         access_key_id: input.access_key_id,
         force_path_style: input.force_path_style,
+        skip_tls_verify: input.skip_tls_verify,
         default_bucket: input.default_bucket,
     };
 
@@ -112,6 +117,7 @@ mod tests {
             region: "us-east-1".to_string(),
             access_key_id: "AKIAEXAMPLE".to_string(),
             force_path_style: true,
+            skip_tls_verify: true,
             default_bucket: Some("media".to_string()),
         }
     }
@@ -130,6 +136,7 @@ mod tests {
         assert_eq!(parsed.region, profile.region);
         assert_eq!(parsed.access_key_id, profile.access_key_id);
         assert_eq!(parsed.force_path_style, profile.force_path_style);
+        assert_eq!(parsed.skip_tls_verify, profile.skip_tls_verify);
         assert_eq!(parsed.default_bucket, profile.default_bucket);
     }
 
@@ -146,6 +153,21 @@ mod tests {
         assert!(profile.endpoint.is_none());
         assert!(profile.default_bucket.is_none());
         assert!(!profile.force_path_style);
+        assert!(!profile.skip_tls_verify);
+    }
+
+    #[test]
+    fn connection_profile_defaults_skip_tls_verify_to_false() {
+        let json = r#"{
+            "id": "conn-legacy",
+            "name": "Legacy",
+            "endpoint": "https://minio.example.com",
+            "region": "us-east-1",
+            "accessKeyId": "KEY",
+            "forcePathStyle": true
+        }"#;
+        let profile: ConnectionProfile = serde_json::from_str(json).expect("deserialize");
+        assert!(!profile.skip_tls_verify);
     }
 
     #[test]
@@ -183,6 +205,7 @@ mod tests {
             "secretAccessKey": "secret",
             "sessionToken": "token",
             "forcePathStyle": true,
+            "skipTlsVerify": true,
             "defaultBucket": "uploads"
         }"#;
         let input: SaveConnectionInput = serde_json::from_str(json).expect("deserialize");
@@ -191,6 +214,7 @@ mod tests {
         assert_eq!(input.secret_access_key.as_deref(), Some("secret"));
         assert_eq!(input.session_token.as_deref(), Some("token"));
         assert!(input.force_path_style);
+        assert!(input.skip_tls_verify);
         assert_eq!(input.default_bucket.as_deref(), Some("uploads"));
     }
 }

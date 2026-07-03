@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Loader2, MoreHorizontal, PlugZap, Plus, Trash2, Pencil } from "lucide-react";
+import { Loader2, MoreHorizontal, PlugZap, Plus, Trash2, Pencil, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import type { S3Connection, S3ConnectionInput } from "@/types/connection";
 import { CollapsiblePanelHeader } from "@/components/layout/CollapsiblePanelHeader";
 import { ConnectionForm } from "./ConnectionForm";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ConnectionListProps {
   connections: S3Connection[];
@@ -107,8 +108,21 @@ export function ConnectionList({
                       onClick={() => onSelect(connection.id)}
                     >
                       <div className="truncate text-sm font-medium">{connection.name}</div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {connection.endpoint ?? connection.region}
+                      <div className="flex items-center gap-1 truncate text-xs text-muted-foreground">
+                        <span className="truncate">
+                          {connection.endpoint ?? connection.region}
+                        </span>
+                        {connection.skipTlsVerify && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <TriangleAlert
+                                className="h-3 w-3 shrink-0 text-amber-500"
+                                aria-label="TLS verification disabled"
+                              />
+                            </TooltipTrigger>
+                            <TooltipContent>TLS certificate verification is disabled</TooltipContent>
+                          </Tooltip>
+                        )}
                       </div>
                     </button>
 

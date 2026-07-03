@@ -161,6 +161,7 @@ export function AppShell() {
         accessKeyId: connection.accessKeyId,
         secretAccessKey: "",
         forcePathStyle: connection.forcePathStyle,
+        skipTlsVerify: connection.skipTlsVerify,
         defaultBucket: bucket,
       },
       connection.id,

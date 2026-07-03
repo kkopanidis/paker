@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-07-03
+
+### Added
+
+- Per-connection option to skip TLS certificate verification for HTTPS endpoints (e.g. self-signed MinIO in development)
+
 ## [0.8.1] - 2026-06-22
 
 ### Fixed

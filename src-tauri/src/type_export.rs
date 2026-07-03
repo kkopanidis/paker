@@ -38,6 +38,7 @@ export interface ConnectionProfileGenerated {
   region: string;
   accessKeyId: string;
   forcePathStyle: boolean;
+  skipTlsVerify: boolean;
   defaultBucket?: string;
 }
 ";

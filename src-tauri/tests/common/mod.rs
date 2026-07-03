@@ -1,4 +1,4 @@
-use paker_lib::test_exports::ConnectionProfile;
+use paker_lib::test_exports::{build_insecure_http_client, endpoint_uses_https, ConnectionProfile};
 use std::time::Duration;
 
 pub const TEST_BUCKET: &str = "paker-test";
@@ -20,6 +20,7 @@ pub fn test_connection_profile() -> ConnectionProfile {
         region: "us-east-1".to_string(),
         access_key_id: MINIO_ACCESS_KEY.to_string(),
         force_path_style: true,
+        skip_tls_verify: false,
         default_bucket: Some(TEST_BUCKET.to_string()),
     }
 }
@@ -80,6 +81,10 @@ pub async fn build_test_client(
 
     if profile.force_path_style {
         config_builder = config_builder.force_path_style(true);
+    }
+
+    if profile.skip_tls_verify && endpoint_uses_https(profile.endpoint.as_deref()) {
+        config_builder = config_builder.http_client(build_insecure_http_client());
     }
 
     aws_sdk_s3::Client::from_conf(config_builder.build())

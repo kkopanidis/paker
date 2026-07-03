@@ -117,6 +117,7 @@ function mapConnectionInput(payload: SaveConnectionPayload) {
     secretAccessKey: payload.secretAccessKey || null,
     sessionToken: payload.sessionToken || null,
     forcePathStyle: payload.forcePathStyle,
+    skipTlsVerify: payload.skipTlsVerify,
     defaultBucket: payload.defaultBucket || null,
   };
 }

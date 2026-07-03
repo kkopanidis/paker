@@ -1,5 +1,6 @@
 use crate::error::{into_ipc_error, validate_endpoint_url, PakerError};
 use crate::storage::{get_secret, get_session_token, ConnectionProfile};
+use crate::s3::tls::{build_insecure_http_client, endpoint_uses_https};
 use aws_config::BehaviorVersion;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::{Builder as S3ConfigBuilder, Region};
@@ -43,6 +44,10 @@ pub async fn build_client(
 
     if profile.force_path_style {
         config_builder = config_builder.force_path_style(true);
+    }
+
+    if profile.skip_tls_verify && endpoint_uses_https(profile.endpoint.as_deref()) {
+        config_builder = config_builder.http_client(build_insecure_http_client());
     }
 
     Ok(Client::from_conf(config_builder.build()))

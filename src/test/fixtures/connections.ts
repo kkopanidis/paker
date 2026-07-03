@@ -6,6 +6,7 @@ export const connA: S3Connection = {
   region: "us-east-1",
   accessKeyId: "key-a",
   forcePathStyle: false,
+  skipTlsVerify: false,
   defaultBucket: "bucket-a",
 };
 
@@ -15,5 +16,6 @@ export const connB: S3Connection = {
   region: "us-east-1",
   accessKeyId: "key-b",
   forcePathStyle: false,
+  skipTlsVerify: false,
   defaultBucket: "bucket-b",
 };

@@ -16,6 +16,7 @@ pub use error::PakerError;
 pub mod test_exports {
     pub use crate::s3::client::build_client;
     pub use crate::s3::operations::*;
+    pub use crate::s3::tls::{build_insecure_http_client, endpoint_uses_https};
     pub use crate::storage::ConnectionProfile;
 }
 
