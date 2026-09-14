@@ -30,7 +30,7 @@ create_bucket() {
 
   if command -v docker >/dev/null 2>&1; then
     docker run --rm --add-host=host.docker.internal:host-gateway \
-      minio/mc:latest sh -c "
+      quay.io/minio/mc:latest sh -c "
         mc alias set paker '${ENDPOINT}' '${ACCESS_KEY}' '${SECRET_KEY}' &&
         mc mb 'paker/${BUCKET}' --ignore-existing
       "
