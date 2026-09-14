@@ -101,7 +101,7 @@ Rust S3 integration tests live in `src-tauri/tests/` and talk to a MinIO (or S3-
 
 Local run:
 
-1. Start MinIO (for example `docker run -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin minio/minio server /data`).
+1. Start MinIO (for example `docker run -p 9000:9000 -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin quay.io/minio/minio server /data`).
 2. `bash scripts/setup-minio-test.sh`
 3. `PAKER_TEST_S3_ENDPOINT=http://127.0.0.1:9000 cargo test --manifest-path src-tauri/Cargo.toml --features integration-tests --test s3_integration -- --ignored`
 

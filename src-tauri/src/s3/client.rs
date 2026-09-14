@@ -1,6 +1,6 @@
 use crate::error::{into_ipc_error, validate_endpoint_url, PakerError};
-use crate::storage::{get_secret, get_session_token, ConnectionProfile};
 use crate::s3::tls::{build_insecure_http_client, endpoint_uses_https};
+use crate::storage::{get_secret, get_session_token, ConnectionProfile};
 use aws_config::BehaviorVersion;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::config::{Builder as S3ConfigBuilder, Region};
